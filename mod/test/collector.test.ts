@@ -101,3 +101,26 @@ test('case 10: a reload keeps $.state; session.start does not reset an existing 
   await $.session.start({ cwd: '/w/proj', surface: 'terminal', isInteractive: true }) // what a reload fires
   expect(getSnap().agents.some((a: any) => a.id === 'keep')).toBe(true)
 })
+
+test('review fix 2: two events racing at the /clear boundary both land in the new snapshot', async ($, on) => {
+  let n = 0
+  const { clock, ids, getSnap } = await boot($, on, () => on('agent.spawn', () => ({ model: 'm', agentId: `w${++n}` })))
+  await $.session.end({ reason: 'clear', sessionId: 'sess-1', resume: { id: 'sess-1' } })
+  await clock.settle()
+  ids.current = 'sess-new'
+  await Promise.all([
+    $.agent.spawn({ ...SPAWN, prompt: 'p', description: 'one', subagentType: 'Explore' }),
+    $.agent.spawn({ ...SPAWN, prompt: 'p', description: 'two', subagentType: 'Explore' }),
+  ])
+  const s = getSnap()
+  expect(s.session.id).toBe('sess-new')
+  expect(s.agents.map((a: any) => a.id).sort()).toEqual(['main', 'w1', 'w2'])
+})
+
+test('review fix 4: task fields from tool input are type-checked before they reach the snapshot', async ($, on) => {
+  const { getSnap } = await boot($, on, () => on('tool.call', { tool: /^Task(Create|Update)$/ }, ($: any, e: any) =>
+    e.tool === 'TaskCreate' ? { result: { task: { id: 't1', subject: 'Real subject' } } } : { result: { success: true, taskId: e.taskId, updatedFields: [] } }))
+  await $.tool.call({ tool: 'TaskCreate', subject: 42, description: 'd' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: 't1', addBlockedBy: ['t0', 7, { x: 1 }] } as never)
+  expect(getSnap().tasks).toEqual([{ id: 't1', subject: 'Real subject', status: 'pending', blockedBy: ['t0'] }])
+})

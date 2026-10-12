@@ -17,13 +17,13 @@ export function toolEvents(e: ToolIn, ran: ToolOut, at: number): Event[] {
   if (ran.deny !== undefined || ran.isError === true) return out
   const r = ran.result as Record<string, any> | undefined
   if (e.tool === 'TaskCreate' && typeof r?.task?.id === 'string') {
-    out.push({ kind: 'taskCreate', id: r.task.id, subject: String(e.subject ?? r.task.subject) })
+    out.push({ kind: 'taskCreate', id: r.task.id, subject: typeof e.subject === 'string' ? e.subject : String(r.task.subject) })
   }
   if (e.tool === 'TaskUpdate' && typeof e.taskId === 'string') {
     out.push({
       kind: 'taskUpdate', id: e.taskId, subject: typeof e.subject === 'string' ? e.subject : undefined,
       status: typeof e.status === 'string' ? (e.status as never) : undefined,
-      addBlockedBy: Array.isArray(e.addBlockedBy) ? (e.addBlockedBy as string[]) : undefined,
+      addBlockedBy: Array.isArray(e.addBlockedBy) ? e.addBlockedBy.filter((x): x is string => typeof x === 'string') : undefined,
     })
   }
   if (e.tool === 'Workflow' && typeof r?.runId === 'string' && typeof r?.workflowName === 'string') {

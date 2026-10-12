@@ -2,16 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 import { DEFAULT_STALE_WORKFLOW_MS, emptySnapshot, type Snapshot } from '../core/model.ts'
 import { reduceAll, type Event } from '../core/reducer.ts'
-import { DEFAULT_CONFIG, parseConfig, type ConfigJson } from '../core/pools.ts'
-import type { SwimtraceConfig, SwimtraceSnapshot } from '../types'
+import { DEFAULT_CONFIG, parseConfig } from '../core/pools.ts'
 import { listEvents, spawnEvent, toolEvents, turnEndEvent } from './events.ts'
 
-// The $.state contract cannot import the core, so it holds copies of its types: keep them identical.
-type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never
-const _snapshotInSync: Same<Snapshot, SwimtraceSnapshot> = true
-const _configInSync: Same<ConfigJson, SwimtraceConfig> = true
-void _snapshotInSync
-void _configInSync
+// The $.state contract (../types/index.d.ts) holds copies of the core's types; test/contract-sync.ts keeps them identical.
 
 export const PANE = 'swimtrace'
 const snap = atom({ plugin: 'swimtrace', key: 'snap' } as const, undefined as Snapshot | undefined)
@@ -31,21 +25,18 @@ async function apply($: EngineInterface, evs: Event[]): Promise<void> {
   if (evs.length === 0) return
   const now = await $.clock.now()
   const cur = await read($, snap)
-  if (cur === undefined || cur.session.endedAt !== undefined) {
-    // first event of the session, or the first after a /clear: open a new snapshot
-    const id = await $.session.id()
-    if (cur === undefined || cur.session.id !== id) {
-      const project = cur?.session.project ?? (await $.session.cwd())
-      const fresh = emptySnapshot({ id, project, startedAt: now })
-      await update($, snap, () => reduceAll(fresh, evs))
-      dirty = true
-      return
-    }
-  }
+  // A fresh snapshot is due only with none yet, or the first event after a /clear (the current one ended and the
+  // session id moved on). The id is read up front; the decision itself is made inside update, from the value
+  // standing at write time, so two applies racing at the /clear boundary never both start from empty.
+  const mayOpen = cur === undefined || cur.session.endedAt !== undefined
+  const id = mayOpen ? await $.session.id() : undefined
+  const project = mayOpen ? (cur?.session.project ?? (await $.session.cwd())) : undefined
   await update($, snap, s => {
-    if (s === undefined) return s
-    const n = reduceAll(s, evs)
-    if (n !== s) dirty = true // reduce returns the same object when nothing changed, so idle ticks write nothing
+    const open = id !== undefined && (s === undefined || (s.session.endedAt !== undefined && s.session.id !== id))
+    const base = open ? emptySnapshot({ id, project: s?.session.project ?? project ?? '', startedAt: now }) : s
+    if (base === undefined) return s
+    const n = reduceAll(base, evs)
+    if (open || n !== s) dirty = true // reduce returns the same object when nothing changed, so idle ticks write nothing
     return n
   })
 }
@@ -59,9 +50,9 @@ const safe = async (fn: () => Promise<void>): Promise<void> => {
 async function writeSnapshot($: EngineInterface, force: boolean): Promise<void> {
   const now = await $.clock.now()
   if (!dirty && !force) return
+  dirty = false // before the read: an apply landing during it marks the snapshot dirty again
   const s = await read($, snap)
   if (s === undefined) return
-  dirty = false
   lastWrite = now
   await $.fs.write(`${await swimtraceDir($)}/sessions/${s.session.id}.json`, JSON.stringify({ ...s, writtenAt: now }))
 }
