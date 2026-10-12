@@ -18,7 +18,7 @@ Decisions taken during brainstorming:
 
 | Decision | Choice |
 | --- | --- |
-| UI location | Both: an in-session mod pane and a standalone `swimtrace` CLI, sharing one layout core |
+| UI location | Both: an in-session view (the band above the prompt; a pane until 2026-10-12) and a standalone `swimtrace` CLI, sharing one layout core |
 | Default lanes | Layered rules (config → explicit tag → workflow run → agent type), each lane labelled with its source |
 | Architecture | Approach A: mod collector → per-session snapshot files → pure shared layout core |
 | CLI rendering | Plain ANSI + `node:readline` keypresses, no Ink/Blessed, zero runtime dependencies |
@@ -51,6 +51,10 @@ the bundled plugin-authoring skill; line numbers below refer to that file).
 - **Panes.** `$.ui.open({ id, title })` + a `ui.render` hook on `Pane`. Opened unasked it docks only
   from 144 columns (110 once the user opened that id before); opened from a command it docks at any
   width (`:2490`). The engine draws it, so it cannot conflict with Claude Code's terminal rendering.
+- **The band above the prompt.** A `ui.render` hook on `AbovePrompt` draws inside the session's own view, no
+  pane opened; props `maxRows`, `bodyColumns`, `hasSurvey`. The person collapses it (ctrl+x ctrl+a) or focuses
+  it (click, ctrl+x tab) to arm Button hotkeys. Used instead of the pane since 2026-10-12 (user: the view
+  belongs in the session's terminal, not one more pane).
 - **Storage.** `$.state` (session values that survive hot reload, subscribed by renders),
   `$.store` (per-plugin JSON, 4 MiB), `$.fs.write(path, text)` (whole-file, no append, `:3256`),
   `$.env.get("HOME")` (`:3603`), `$.clock.every`.
@@ -100,9 +104,9 @@ Read-only clone; nothing installed or modified. The monitor does not depend on i
 ```
 Claude Code session(s)                         filesystem                      viewers
 ┌───────────────────────────────┐   write ≤4/s   ~/.claude/swimtrace/     ┌──────────────────┐
-│ swimtrace mod                 │   + heartbeat  ├─ config.json  ───────► │ in-session pane  │
+│ swimtrace mod                 │   + heartbeat  ├─ config.json  ───────► │ in-session band  │
 │  collector hooks ─► reducer ─►│ ─────────────► ├─ sessions/<id>.json ─► │ swimtrace CLI    │
-│  $.state (live) ─► layout ─► Pane              └─ sim/<id>.json ──────► │ (fs.watch, ANSI) │
+│  $.state (live) ─► layout ─► band              └─ sim/<id>.json ──────► │ (fs.watch, ANSI) │
 └───────────────────────────────┘                                         └──────────────────┘
 ```
 
@@ -114,7 +118,7 @@ swimtrace/
   mod/                                # the Claude Code mod
     .claude-plugin/plugin.json
     types/index.d.ts                  # $.state contract
-    hooks/hooks.json, register.tsx    # collector, snapshot writer, pane, /swimtrace command
+    hooks/hooks.json, register.tsx    # collector, snapshot writer, band, /swimtrace command
     core/                             # pure TS: no node:*, no $ — shared with the CLI
       model.ts  reducer.ts  pools.ts  layout.ts
     test/*.test.ts                    # claude plugin test
@@ -210,7 +214,7 @@ an agent's current tool is the one in progress; what the result adds is recorded
 
 `toolCall` and `runEnd` for never-seen ids are ignored; a missed spawn heals via the agent list.
 
-State lives in `$.state` (`swimtrace.snapshot`) so the pane re-renders on change and a hot reload
+State lives in `$.state` (`swimtrace.snapshot`) so the band re-renders on change and a hot reload
 keeps it.
 
 ### 5.4 Snapshot writer
@@ -252,7 +256,7 @@ and shows one row per agent, indented under its parent.
 ## 7. Terminal swimlane UI
 
 `layout(snapshot, view, { width, height, selection, now, zoom }): Row[]` — pure; a `Row` is a list
-of `{ text, fg?, bold?, dim?, inverse? }` segments. The pane maps segments to `Box`/`Text`; the CLI
+of `{ text, fg?, bold?, dim?, inverse? }` segments. The band maps segments to `Box`/`Text`; the CLI
 maps them to ANSI.
 
 ```
@@ -277,11 +281,12 @@ Running 2 · Waiting 1 · Done 1 · Failed 1 · Unknown 0
 - Tasks strip only when Task tools were used; "pending" appears only there.
 - Keys: ↑/↓ select · Enter details (id, parent, type, pool + source, current tool, start/end, end
   reason) · `g` pool/agent view · `r` running only · `+`/`-` zoom · Tab next session (CLI) · `q`
-  quit (CLI). In the pane the keys are button hotkeys: `g` pools/agents, `r` running only, `j`/`k` select,
+  quit (CLI). In the band the keys are button hotkeys: `g` pools/agents, `r` running only, `j`/`k` select,
   `d` details, `n` other sessions. Zoom and `q` are CLI-only.
 
-**Pane:** `/swimtrace` opens it (docks at any width); a session switcher reads other snapshot files
-with `$.fs`. Not opened unasked.
+**Band:** drawn above the prompt once this session has a subagent (or another session is picked), at most
+half the terminal's rows (it scrolls past that); it passes while a survey holds the band. `/swimtrace` hides or
+shows it; showing again starts at this session. A session switcher reads other snapshot files with `$.fs`.
 
 **CLI:** `swimtrace` follows the newest live session whose project is the current directory;
 `swimtrace --all` starts at a session list; `swimtrace sim <scenario>` (§8); `swimtrace clean`
@@ -337,7 +342,7 @@ No step reads or writes `settings.json`, project files, or existing hooks.
 | 9 | Terminal resize | layout at 40 / 80 / 200 columns (compact vs timeline) |
 | 10 | Monitor restart | CLI rebuild from files; `claude plugin test` state survives reload |
 
-Mod tests (`claude plugin test`): spawn → tool.call → turn.complete through the hooks; pane mounts
+Mod tests (`claude plugin test`): spawn → tool.call → turn.complete through the hooks; band mounts
 on the `terminal` surface; fail-open — with `$.fs.write` throwing, a tool call's result is returned
 unchanged. One real validation run (two parallel Explore agents), run only with the user's OK.
 
@@ -348,8 +353,8 @@ unchanged. One real validation run (two parallel Explore agents), run only with 
 - **Workflow agents** are absent from `$.agent.list()`; their killed/stuck state is only inferable
   (→ `unknown` after 10 min idle).
 - **Per-agent workflow phase/label** may not be observable (spike S2).
-- **CLI freshness** is bounded by the 250 ms write interval; the pane is live.
-- **Pane width:** docks unasked only at ≥144 columns; we never open it unasked.
+- **CLI freshness** is bounded by the 250 ms write interval; the band is live.
+- **Band height:** at most half the terminal; the main loop alone draws no band.
 - **Remote/cloud agents** (`isolation: 'remote'`) have no local loop events; shown at most as spawned.
 - **Single machine:** snapshots are local files; no cross-machine view.
 
@@ -372,7 +377,7 @@ unchanged. One real validation run (two parallel Explore agents), run only with 
 3. `core/pools.ts` with tests (case 5).
 4. `core/layout.ts` with tests (cases 2, 9).
 5. Mod: collector, `$.state` contract, snapshot writer, plugin tests (fail-open, case 10).
-6. Mod: pane + `/swimtrace` command.
+6. Mod: band (pane until 2026-10-12) + `/swimtrace` command.
 7. CLI: snapshot reader/watcher, ANSI renderer, keys, session switching (cases 6, 10).
 8. CLI: `sim` scenarios and `clean`.
 9. Packaging: marketplace.json, npm bin, README (install, config, privacy, limitations).

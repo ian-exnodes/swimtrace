@@ -41,7 +41,7 @@ export type SwimtraceMatchKey = 'type' | 'name' | 'description' | 'project'
 export interface SwimtraceRule { match: Partial<Record<SwimtraceMatchKey, string>>; pool: string }
 export interface SwimtraceConfig { rules: SwimtraceRule[]; staleWorkflowAgentMinutes: number }
 
-export type SwimtraceUi = { view: 'pool' | 'agent'; runningOnly: boolean; selectedId?: string; expanded: boolean; pick?: string }
+export type SwimtraceUi = { view: 'pool' | 'agent'; runningOnly: boolean; selectedId?: string; expanded: boolean; pick?: string; hidden?: boolean }
 
 declare module 'claude-code' {
   interface PluginState {

@@ -9,8 +9,7 @@ import { listEvents, spawnEvent, toolCallEvent, toolResultEvents, turnEndEvent }
 
 // The $.state contract (../types/index.d.ts) holds copies of the core's types; test/contract-sync.ts keeps them identical.
 
-export const PANE = 'swimtrace'
-// The pane uses Claude Code's theme colors so it stays readable on light and dark themes; the CLI keeps ANSI.
+// The band uses Claude Code's theme colors so it stays readable on light and dark themes; the CLI keeps ANSI.
 const THEME: Record<Fg, ThemeKey> = { green: 'success', red: 'error', yellow: 'warning', cyan: 'suggestion', magenta: 'merged', gray: 'inactive' }
 const snap = atom({ plugin: 'swimtrace', key: 'snap' } as const, undefined as Snapshot | undefined)
 const config = atom({ plugin: 'swimtrace', key: 'config' } as const, DEFAULT_CONFIG)
@@ -70,6 +69,10 @@ async function loadSnapshot($: EngineInterface, path: string): Promise<Snapshot 
   return ok ? s : undefined
 }
 
+// The band takes the space above the prompt only once a session has subagents to show (main alone is not worth a band).
+const hasAgents = (s: Snapshot | undefined): boolean =>
+  s !== undefined && (s.agents.some(a => a.id !== 'main') || Object.values(s.folded).some(n => n > 0))
+
 // This session's snapshot as of now. writtenAt is stamped only into the file, never into $.state, and this process is
 // the writer, so its own session is never stale: without the stamp it would be drawn stale 15 s after it started.
 async function ownNow($: EngineInterface): Promise<Snapshot | undefined> {
@@ -77,7 +80,7 @@ async function ownNow($: EngineInterface): Promise<Snapshot | undefined> {
   return own === undefined ? undefined : { ...own, writtenAt: await $.clock.now() }
 }
 
-// The snapshot the pane's handlers act on: this session's, or the file `pick` names (this session's again if it is gone).
+// The snapshot the band's handlers act on: this session's, or the file `pick` names (this session's again if it is gone).
 async function viewed($: EngineInterface, pick: string | undefined): Promise<Snapshot | undefined> {
   return (pick === undefined ? undefined : await loadSnapshot($, pick)) ?? (await ownNow($))
 }
@@ -90,7 +93,7 @@ async function idsOf($: EngineInterface, s: Snapshot, o: Parameters<typeof selec
   }
 }
 
-// One line of text for the pane, as layout's own rows are: control characters blanked, clipped to `width` cells.
+// One line of text for the band, as layout's own rows are: control characters blanked, clipped to `width` cells.
 function fit(text: string, width: number): string {
   let out = ''
   for (const ch of text.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')) {
@@ -124,7 +127,7 @@ export const register: Register = on => {
         dirty = true
       }
     })
-    await safe(async () => { await $.command.register({ name: 'swimtrace', description: 'Show the SwimTrace swimlane pane' }) })
+    await safe(async () => { await $.command.register({ name: 'swimtrace', description: 'Show or hide the SwimTrace swimlanes above the prompt' }) })
     // Timers outlive the dispatch. A reload drops them and fires session.start again in a fresh copy;
     // a second session.start in the same copy replaces them rather than doubling the writers.
     for (const t of timers) t.cancel()
@@ -141,9 +144,10 @@ export const register: Register = on => {
           const staleWorkflowMs = cfg.staleWorkflowAgentMinutes * 60_000 || DEFAULT_STALE_WORKFLOW_MS
           await apply($, [...listEvents(list, now), { kind: 'tick', at: now, staleWorkflowMs }])
         })
-        // Durations move with no event arriving: redraw while the pane is on show, whether or not the poll above failed.
+        // Durations move with no event arriving: redraw while the band is on show, whether or not the poll above failed.
         await safe(async () => {
-          if ((await $.ui.panes()).some(p => p.id === PANE && p.isShown)) $.ui.invalidate('ui.render')
+          const u = await read($, ui)
+          if (!u.hidden && (u.pick !== undefined || hasAgents(await read($, snap)))) $.ui.invalidate('ui.render')
         })
       })()),
     ]
@@ -193,29 +197,34 @@ export const register: Register = on => {
     const text = await $.fs.read(`${await swimtraceDir($)}/config.json`).then(t => (typeof t === 'string' ? t : undefined), () => undefined)
     const parsed = parseConfig(text)
     await update($, config, () => parsed.config)
-    await update($, ui, x => (x.pick === undefined ? x : { ...x, pick: undefined, selectedId: undefined })) // reopening starts at this session
-    const opened = await $.ui.open({ id: PANE, title: 'SwimTrace' })
+    // A toggle; showing again starts at this session.
+    const shown = !(await read($, ui)).hidden
+    await update($, ui, x => (shown ? { ...x, hidden: true } : { ...x, hidden: false, pick: undefined, selectedId: undefined }))
     const notes = [
-      ...(opened.isPlaced ? [] : [`not shown yet: ${opened.reason}`]),
+      ...(!shown && !hasAgents(await read($, snap)) ? ['it appears once agents run'] : []),
       ...(parsed.warnings.length > 0 ? [`config: ${parsed.warnings.join('; ')}`] : []),
     ]
-    return { text: notes.length > 0 ? `SwimTrace opened (${notes.join('; ')}).` : 'SwimTrace opened.' }
+    const head = shown ? 'SwimTrace hidden.' : 'SwimTrace shown above the prompt'
+    return { text: shown ? head : notes.length > 0 ? `${head} (${notes.join('; ')}).` : `${head}.` }
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+  // The swimlanes draw in the band above the prompt, inside the session's own view; it passes when there is nothing to show.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const u = await read($, ui)
     const own = await ownNow($)
+    if (e.props.hasSurvey || u.hidden || (u.pick === undefined && !hasAgents(own))) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const picked = u.pick === undefined ? undefined : await loadSnapshot($, u.pick)
     const { rules } = compileRules((await read($, config)).rules)
     const now = await $.clock.now()
-    const room = e.props.scroll?.bodyRows ?? (e.viewport?.rows ?? 30) - 4
+    // Outside fullscreen maxRows is the whole terminal: hold the band to half of it, as fullscreen's slot already is.
+    const room = Math.min(e.props.maxRows, Math.floor((e.viewport?.rows ?? 40) / 2))
     const opts = (height: number) => ({
       width: e.props.bodyColumns, height, now, view: u.view, runningOnly: u.runningOnly,
       selectedId: u.selectedId, expanded: u.expanded, rules,
     })
-    // A file another session wrote may be malformed past loadSnapshot's shape check; a pane whose hook throws is
-    // closed, buttons and all, so a bad file draws this session's snapshot under a note instead.
+    // A file another session wrote may be malformed past loadSnapshot's shape check; a band whose hook throws loses
+    // its buttons, so a bad file draws this session's snapshot under a note instead.
     let rows: Row[] | undefined
     let note: Row | undefined
     if (picked !== undefined) {
@@ -245,11 +254,11 @@ export const register: Register = on => {
     const cycle = async () => {
       const files = await otherSessions($, (await read($, snap))?.session.id)
       const from = (await read($, ui)).pick
-      let next: string | undefined
+      let to: string | undefined
       for (const f of files.slice(from === undefined ? 0 : files.indexOf(from) + 1)) {
-        if ((await loadSnapshot($, f)) !== undefined) { next = f; break }
+        if ((await loadSnapshot($, f)) !== undefined) { to = f; break }
       }
-      await update($, ui, x => (x.pick === from ? { ...x, pick: next, selectedId: undefined } : x))
+      await update($, ui, x => (x.pick === from ? { ...x, pick: to, selectedId: undefined } : x))
     }
 
     return (

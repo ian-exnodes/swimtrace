@@ -1,6 +1,6 @@
 # SwimTrace
 
-Live swimlanes of Claude Code subagents — in a pane inside Claude Code and in a `swimtrace` terminal viewer.
+Live swimlanes of Claude Code subagents — in the band above the prompt inside Claude Code and in a `swimtrace` terminal viewer.
 Strictly observational: it never changes, blocks or slows what Claude Code does, never edits `settings.json`,
 and never calls a model.
 
@@ -20,12 +20,13 @@ npm i -g swimtrace        # or, from a clone: npm i -g .
 
 ## Use
 
-- `/swimtrace` in Claude Code opens the pane. Keys (button hotkeys, while the pane has focus): `g` pools/agents,
+- In Claude Code the swimlanes appear above the prompt once a subagent runs; `/swimtrace` hides or shows them, and
+  ctrl+x ctrl+a collapses them. Keys (button hotkeys, after a click on the band or ctrl+x tab): `g` pools/agents,
   `r` running only, `j`/`k` select, `d` details, `n` other sessions.
 - `swimtrace` in another terminal (a tmux split works well) follows the newest live session of the current directory.
   `swimtrace --all` starts at the session list. Keys: ↑/↓, Enter, `g`, `r`, `+`/`-` zoom, `l` list, Tab, `q`.
   Zoom and `q` exist only in the CLI.
-- The pane uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
+- The band uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
 - `swimtrace sim fanout|failure|workflow|multi-session|crash [--speed N]` plays synthetic events (no tokens),
   marked `SIMULATED`. `N` must be a number greater than 0.
 
@@ -88,7 +89,7 @@ makes it refuse and name what it found.
 
 ## Requirements and limits
 
-Claude Code 2.1.296 or newer (the mod API is early access and may change), Node 22.6+. The pane docks beside the
-transcript when opened with `/swimtrace`. Remote (cloud) agents have no local events. Local machine only.
-The viewer restores your terminal if it hits an error. If another session's file in the pane is malformed, the
-pane falls back to the current session and says "unreadable".
+Claude Code 2.1.296 or newer (the mod API is early access and may change), Node 22.6+. The band takes at most half the
+terminal's height and scrolls past that. Remote (cloud) agents have no local events. Local machine only.
+The viewer restores your terminal if it hits an error. If another session's file in the band is malformed, the
+band falls back to the current session and says "unreadable".
