@@ -395,6 +395,15 @@ test('tick turns a silent workflow agent unknown, never completed', () => {
   assert.equal(agent(s, 'n')!.status, 'running') // non-workflow agents are healed by the list, not by tick
 })
 
+test('events that change nothing return the same snapshot object (no idle writes)', () => {
+  const s = reduceAll(S(), [spawn('a', 1), spawn('w', 1, { workflowRunId: 'wf' }), { kind: 'listStatus', at: 2, agentId: 'a', status: 'running', type: 'Explore', description: 'do a' }])
+  assert.equal(reduce(s, { kind: 'tick', at: 3, staleWorkflowMs: 600_000 }), s)
+  assert.equal(reduce(s, { kind: 'listStatus', at: 4, agentId: 'a', status: 'running', type: 'Explore', description: 'do a' }), s)
+  assert.equal(reduce(s, { kind: 'mainTurn', at: 5, phase: 'end' }), s) // main already waiting
+  const done = reduce(s, { kind: 'runEnd', at: 6, agentId: 'a', reason: 'answer' })
+  assert.equal(reduce(done, { kind: 'listStatus', at: 7, agentId: 'a', status: 'completed', type: 'Explore', description: 'do a' }), done)
+})
+
 test('reduce does not mutate its input', () => {
   const s0 = S()
   const before = JSON.stringify(s0)
@@ -451,9 +460,17 @@ const END_STATUS: Record<'answer' | 'aborted' | 'refusal' | 'error', Status> = {
   answer: 'completed', aborted: 'interrupted', refusal: 'failed', error: 'failed',
 }
 
-const mapAgent = (s: Snapshot, id: string, fn: (a: Agent) => Agent): Snapshot => ({
-  ...s, agents: s.agents.map(a => (a.id === id ? fn(a) : a)),
-})
+// Returns `s` itself when `fn` changed nothing: the collector relies on that to skip idle writes.
+function mapAgent(s: Snapshot, id: string, fn: (a: Agent) => Agent): Snapshot {
+  let changed = false
+  const agents = s.agents.map(a => {
+    if (a.id !== id) return a
+    const n = fn(a)
+    if (n !== a) changed = true
+    return n
+  })
+  return changed ? { ...s, agents } : s
+}
 
 function apply(s: Snapshot, ev: Event): Snapshot {
   const known = (id: string) => s.agents.some(a => a.id === id)
@@ -477,8 +494,11 @@ function apply(s: Snapshot, ev: Event): Snapshot {
         : a))
     }
     case 'mainTurn':
-      return mapAgent(s, 'main', a => ({ ...a, status: ev.phase === 'start' ? 'running' : 'waiting', lastSeenAt: ev.at,
-        currentTool: ev.phase === 'end' ? undefined : a.currentTool }))
+      return mapAgent(s, 'main', a => {
+        const status: Status = ev.phase === 'start' ? 'running' : 'waiting'
+        if (a.status === status && (ev.phase === 'start' || a.currentTool === undefined)) return a
+        return { ...a, status, lastSeenAt: ev.at, currentTool: ev.phase === 'end' ? undefined : a.currentTool }
+      })
     case 'listStatus': {
       if (!known(ev.agentId)) {
         const live = ev.status === 'running' || ev.status === 'pending' || ev.status === 'waiting' || ev.status === 'idle'
@@ -495,8 +515,8 @@ function apply(s: Snapshot, ev: Event): Snapshot {
         switch (ev.status) {
           case 'killed': return { ...a, status: 'killed', endedAt: ev.at, endReason: 'killed', currentTool: undefined }
           case 'completed': case 'failed': return { ...a, status: ev.status, endedAt: ev.at, currentTool: undefined }
-          case 'waiting': case 'idle': return { ...a, status: 'waiting' }
-          default: return { ...a, status: 'running' }
+          case 'waiting': case 'idle': return a.status === 'waiting' ? a : { ...a, status: 'waiting' }
+          default: return a.status === 'running' ? a : { ...a, status: 'running' }
         }
       })
     }
@@ -510,13 +530,14 @@ function apply(s: Snapshot, ev: Event): Snapshot {
           return { ...a, status: 'unknown', endedAt: ev.at, endReason: 'session-end', currentTool: undefined }
         }),
       }
-    case 'tick':
+    case 'tick': {
+      const isStale = (a: Agent) => a.workflowRunId !== undefined && isLive(a.status) && ev.at - a.lastSeenAt > ev.staleWorkflowMs
+      if (!s.agents.some(isStale)) return s
       return {
         ...s,
-        agents: s.agents.map(a => (a.workflowRunId !== undefined && isLive(a.status) && ev.at - a.lastSeenAt > ev.staleWorkflowMs
-          ? { ...a, status: 'unknown', endedAt: a.lastSeenAt, endReason: 'stale', currentTool: undefined }
-          : a)),
+        agents: s.agents.map(a => (isStale(a) ? { ...a, status: 'unknown', endedAt: a.lastSeenAt, endReason: 'stale', currentTool: undefined } : a)),
       }
+    }
     default:
       return s
   }
@@ -1343,6 +1364,7 @@ test('fail-open: a throwing fs.write never breaks a tool call', async ($, on) =>
 test('review focus 1: /clear ends the old snapshot; the next event opens one under the new id', async ($, on) => {
   const { clock, writes, ids } = await boot($, on)
   await $.session.end({ reason: 'clear', sessionId: 'sess-1', resume: {} as never })
+  await clock.settle()
   await clock.advance(300)
   expect(JSON.parse(writes['/home/t/.claude/swimtrace/sessions/sess-1.json']!).session.endedAt).toBeDefined()
   ids.current = 'sess-new' // what $.session.id() answers after the /clear
@@ -1413,7 +1435,9 @@ async function apply($: EngineInterface, evs: Event[]): Promise<void> {
   })
 }
 
-const safe = (fn: () => Promise<void>) => { fn().catch(() => {}) } // fail open: bookkeeping never throws into the engine
+// Fail open: bookkeeping never throws into the engine. Hooks await it (in-memory only, after next(e) settled);
+// disk I/O stays on the 250 ms timer, so no hook waits on the file system.
+const safe = async (fn: () => Promise<void>): Promise<void> => { try { await fn() } catch { /* observational: ignore */ } }
 
 async function writeSnapshot($: EngineInterface, force: boolean): Promise<void> {
   const now = await $.clock.now()
@@ -1428,7 +1452,7 @@ async function writeSnapshot($: EngineInterface, force: boolean): Promise<void> 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const r = await next(e)
-    safe(async () => {
+    await safe(async () => {
       const dir = await swimtraceDir($)
       const text = await $.fs.read(`${dir}/config.json`).then(t => t as string, () => undefined)
       await update($, config, () => parseConfig(text).config)
@@ -1440,11 +1464,11 @@ export const register: Register = on => {
       }
     })
     // timers outlive the dispatch; they restart on every reload (session.start fires again)
-    $.clock.every(250, () => safe(async () => {
+    $.clock.every(250, () => void safe(async () => {
       const now = await $.clock.now()
       await writeSnapshot($, now - lastWrite >= 5_000)
     }))
-    $.clock.every(1_000, () => safe(async () => {
+    $.clock.every(1_000, () => void safe(async () => {
       const now = await $.clock.now()
       const cfg = await read($, config)
       const list = await $.agent.list()
@@ -1455,31 +1479,31 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
-    safe(async () => { if (r.agentId) await apply($, [spawnEvent(e, r.agentId, await $.clock.now())]) })
+    await safe(async () => { if (r.agentId) await apply($, [spawnEvent(e, r.agentId, await $.clock.now())]) })
     return r
   })
 
   on('tool.call', async ($, e, next) => {
     const ran = await next(e)
-    safe(async () => apply($, toolEvents(e as never, ran as never, await $.clock.now())))
+    await safe(async () => apply($, toolEvents(e as never, ran as never, await $.clock.now())))
     return ran
   })
 
   on('turn.start', async ($, e, next) => {
     const r = await next(e)
-    safe(async () => apply($, [{ kind: 'mainTurn', at: await $.clock.now(), phase: 'start' }]))
+    await safe(async () => apply($, [{ kind: 'mainTurn', at: await $.clock.now(), phase: 'start' }]))
     return r
   })
 
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
-    safe(async () => apply($, [turnEndEvent(e, await $.clock.now())]))
+    await safe(async () => apply($, [turnEndEvent(e, await $.clock.now())]))
     return r
   })
 
   on('session.end', async ($, e, next) => {
     const r = await next(e)
-    safe(async () => {
+    await safe(async () => {
       await apply($, [{ kind: 'sessionEnd', at: await $.clock.now(), reason: e.reason }])
       await writeSnapshot($, true)
     })
@@ -1489,6 +1513,8 @@ export const register: Register = on => {
 ```
 
 `session.start` creates the snapshot; `apply()` opens a new one only after a `/clear` (the current snapshot ended and `$.session.id()` now differs) or as a safety net when none exists.
+
+Every hook awaits its bookkeeping after `next(e)` settled and before returning, so the result the engine sees is the one `next` gave, and tests can read state right after an event without racing.
 
 - [ ] **Step 6: Run the plugin tests and validate**
 
