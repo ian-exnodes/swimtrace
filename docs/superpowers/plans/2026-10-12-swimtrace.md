@@ -1,5 +1,8 @@
 # SwimTrace Implementation Plan
 
+> **Superseded in part (2026-10-12):** the in-session Pane described below was replaced by the band above the prompt
+> (`ui.render` on `AbovePrompt`, tests in `mod/test/band.test.tsx`). See the spec's §4 and Pane/Band section.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build SwimTrace — a Claude Code mod that observes multi-agent execution and writes per-session snapshots, plus a `swimtrace` CLI — both rendering the same swimlane layout.

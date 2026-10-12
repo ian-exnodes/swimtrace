@@ -210,75 +210,87 @@ export const register: Register = on => {
 
   // The swimlanes draw in the band above the prompt, inside the session's own view; it passes when there is nothing to show.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const u = await read($, ui)
-    const own = await ownNow($)
-    if (e.props.hasSurvey || u.hidden || (u.pick === undefined && !hasAgents(own))) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const picked = u.pick === undefined ? undefined : await loadSnapshot($, u.pick)
-    const { rules } = compileRules((await read($, config)).rules)
-    const now = await $.clock.now()
-    // Outside fullscreen maxRows is the whole terminal: hold the band to half of it, as fullscreen's slot already is.
-    const room = Math.min(e.props.maxRows, Math.floor((e.viewport?.rows ?? 40) / 2))
-    const opts = (height: number) => ({
-      width: e.props.bodyColumns, height, now, view: u.view, runningOnly: u.runningOnly,
-      selectedId: u.selectedId, expanded: u.expanded, rules,
-    })
-    // A file another session wrote may be malformed past loadSnapshot's shape check; a band whose hook throws loses
-    // its buttons, so a bad file draws this session's snapshot under a note instead.
-    let rows: Row[] | undefined
-    let note: Row | undefined
-    if (picked !== undefined) {
-      try { rows = layout(picked, opts(Math.max(8, room - 1))) } catch { rows = undefined }
-    }
-    if (rows === undefined) {
-      if (u.pick !== undefined) note = [{ text: fit(`swimtrace: other session unreadable (${u.pick.split('/').at(-1) ?? u.pick})`, e.props.bodyColumns), dim: true }]
-      if (own === undefined) return <Text dimColor>SwimTrace: no session yet.</Text>
-      rows = layout(own, opts(Math.max(8, room - (note ? 2 : 1))))
-    }
-    if (note) rows = [note, ...rows]
+    if (e.props.hasSurvey) return next(e)
+    // Fail open: this hook draws the session's own input area, so any throw below hands the band back to the engine.
+    let tree: Awaited<ReturnType<typeof band>>
+    try { tree = await band() } catch { tree = undefined }
+    return tree ?? next(e)
 
-    // Handlers read the state as it stands at the press, never what this drawing captured.
-    const move = async (d: 1 | -1) => {
-      const at = await read($, ui)
-      const cur = await viewed($, at.pick)
-      if (cur === undefined) return
-      const { rules: live } = compileRules((await read($, config)).rules)
-      const ids = await idsOf($, cur, { view: at.view, runningOnly: at.runningOnly, rules: live, now: await $.clock.now() })
-      await update($, ui, x => {
-        if (x.view !== at.view || x.runningOnly !== at.runningOnly || x.pick !== at.pick) return x // the list changed since the press
-        const i = ids.indexOf(x.selectedId ?? '')
-        const to = i < 0 ? (d > 0 ? 0 : ids.length - 1) : Math.max(0, Math.min(ids.length - 1, i + d))
-        return { ...x, selectedId: ids[to] }
+    async function band() {
+      const u = await read($, ui)
+      if (u.hidden) return undefined
+      const own = await ownNow($)
+      if (u.pick === undefined && !hasAgents(own)) return undefined
+      const { Box, Text, Button } = $.ui.resolve(e)
+      const picked = u.pick === undefined ? undefined : await loadSnapshot($, u.pick)
+      const { rules } = compileRules((await read($, config)).rules)
+      const now = await $.clock.now()
+      // Outside fullscreen maxRows is the whole terminal: hold the band to half of it, as fullscreen's slot already is.
+      const room = Math.min(e.props.maxRows, Math.floor((e.viewport?.rows ?? 40) / 2))
+      // The buttons draw first, so their hotkeys stay armed however the band scrolls; they wrap to two rows below
+      // about 80 columns. ponytail: estimated from the labels' width, measure them if the labels change much.
+      const buttonRows = e.props.bodyColumns < 80 ? 2 : 1
+      const opts = (height: number) => ({
+        width: e.props.bodyColumns, height, now, view: u.view, runningOnly: u.runningOnly,
+        selectedId: u.selectedId, expanded: u.expanded, rules,
       })
-    }
-    const cycle = async () => {
-      const files = await otherSessions($, (await read($, snap))?.session.id)
-      const from = (await read($, ui)).pick
-      let to: string | undefined
-      for (const f of files.slice(from === undefined ? 0 : files.indexOf(from) + 1)) {
-        if ((await loadSnapshot($, f)) !== undefined) { to = f; break }
+      // A file another session wrote may be malformed past loadSnapshot's shape check; a throw would hand the whole band
+      // back to the engine, so a bad file draws this session's snapshot under a note instead.
+      let rows: Row[] | undefined
+      let note: Row | undefined
+      if (picked !== undefined) {
+        try { rows = layout(picked, opts(Math.max(4, room - buttonRows))) } catch { rows = undefined }
       }
-      await update($, ui, x => (x.pick === from ? { ...x, pick: to, selectedId: undefined } : x))
-    }
+      if (rows === undefined) {
+        if (u.pick !== undefined) note = [{ text: fit(`swimtrace: other session unreadable (${u.pick.split('/').at(-1) ?? u.pick})`, e.props.bodyColumns), dim: true }]
+        if (own === undefined) return <Text dimColor>SwimTrace: no session yet.</Text>
+        rows = layout(own, opts(Math.max(4, room - buttonRows - (note ? 1 : 0))))
+      }
+      if (note) rows = [note, ...rows]
 
-    return (
-      <Box flexDirection="column">
-        {rows.map(r => (
-          <Box flexDirection="row">
-            {r.length === 0 ? <Text> </Text> : r.filter(g => g.text !== '').map(g => (
-              <Text color={g.fg === undefined ? undefined : THEME[g.fg]} bold={g.bold} dimColor={g.dim} inverse={g.inverse}>{g.text}</Text>
-            ))}
+      // Handlers read the state as it stands at the press, never what this drawing captured.
+      const move = async (d: 1 | -1) => {
+        const at = await read($, ui)
+        const cur = await viewed($, at.pick)
+        if (cur === undefined) return
+        const { rules: live } = compileRules((await read($, config)).rules)
+        const ids = await idsOf($, cur, { view: at.view, runningOnly: at.runningOnly, rules: live, now: await $.clock.now() })
+        await update($, ui, x => {
+          if (x.view !== at.view || x.runningOnly !== at.runningOnly || x.pick !== at.pick) return x // the list changed since the press
+          const i = ids.indexOf(x.selectedId ?? '')
+          const to = i < 0 ? (d > 0 ? 0 : ids.length - 1) : Math.max(0, Math.min(ids.length - 1, i + d))
+          return { ...x, selectedId: ids[to] }
+        })
+      }
+      const cycle = async () => {
+        const files = await otherSessions($, (await read($, snap))?.session.id)
+        const from = (await read($, ui)).pick
+        let to: string | undefined
+        for (const f of files.slice(from === undefined ? 0 : files.indexOf(from) + 1)) {
+          if ((await loadSnapshot($, f)) !== undefined) { to = f; break }
+        }
+        await update($, ui, x => (x.pick === from ? { ...x, pick: to, selectedId: undefined } : x))
+      }
+
+      return (
+        <Box flexDirection="column">
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            <Button key="view" hotkey="g" plain onPress={() => update($, ui, (x): SwimtraceUi => ({ ...x, view: x.view === 'pool' ? 'agent' : 'pool' }))}>{u.view === 'pool' ? 'agents' : 'pools'}</Button>
+            <Button key="running" hotkey="r" plain onPress={() => update($, ui, x => ({ ...x, runningOnly: !x.runningOnly }))}>{u.runningOnly ? 'all' : 'running'}</Button>
+            <Button key="next" hotkey="j" plain onPress={() => move(1)}>next</Button>
+            <Button key="prev" hotkey="k" plain onPress={() => move(-1)}>prev</Button>
+            <Button key="details" hotkey="d" plain onPress={() => update($, ui, x => ({ ...x, expanded: !x.expanded }))}>details</Button>
+            <Button key="session" hotkey="n" plain onPress={() => cycle()}>{u.pick === undefined ? 'this session' : 'other session'}</Button>
           </Box>
-        ))}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Button key="view" hotkey="g" plain onPress={() => update($, ui, (x): SwimtraceUi => ({ ...x, view: x.view === 'pool' ? 'agent' : 'pool' }))}>{u.view === 'pool' ? 'agents' : 'pools'}</Button>
-          <Button key="running" hotkey="r" plain onPress={() => update($, ui, x => ({ ...x, runningOnly: !x.runningOnly }))}>{u.runningOnly ? 'all' : 'running'}</Button>
-          <Button key="next" hotkey="j" plain onPress={() => move(1)}>next</Button>
-          <Button key="prev" hotkey="k" plain onPress={() => move(-1)}>prev</Button>
-          <Button key="details" hotkey="d" plain onPress={() => update($, ui, x => ({ ...x, expanded: !x.expanded }))}>details</Button>
-          <Button key="session" hotkey="n" plain onPress={() => cycle()}>{u.pick === undefined ? 'this session' : 'other session'}</Button>
+          {rows.map(r => (
+            <Box flexDirection="row">
+              {r.length === 0 ? <Text> </Text> : r.filter(g => g.text !== '').map(g => (
+                <Text color={g.fg === undefined ? undefined : THEME[g.fg]} bold={g.bold} dimColor={g.dim} inverse={g.inverse}>{g.text}</Text>
+              ))}
+            </Box>
+          ))}
         </Box>
-      </Box>
-    )
+      )
+    }
   })
 }

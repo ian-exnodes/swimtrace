@@ -200,3 +200,13 @@ test('final fix 2: the band never draws its own live session as stale, however l
   expect((await ui.find({ type: 'Text', text: /^id \S+ / }))?.text.split(' ')[1]).toBe('a1') // running-only list still has it
   await ui.unmount()
 })
+
+test('a short, narrow band draws its buttons first, inside the rows it may take', async ($, on) => {
+  await boot($, on, 'terminal')
+  const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...BAND, props: { ...BAND.props, maxRows: 6, bodyColumns: 40 } })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn.indexOf('"hotkey":"g"')).toBeGreaterThan(-1)
+  expect(drawn.indexOf('"hotkey":"g"')).toBeLessThan(drawn.indexOf('SWIMTRACE'))
+  expect(await ui.find({ type: 'Text', text: /more rows/ })).toBeDefined() // the lanes were cut to fit, not the buttons
+  await ui.unmount()
+})
