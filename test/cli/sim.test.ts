@@ -41,7 +41,7 @@ test('flow: the workflow scenario draws one ◆ node with each verify step chain
   const t = layout(s!, { width: 160, height: 40, now: s!.writtenAt, view: 'agent', runningOnly: false, expanded: false, rules: [] }).map(rowText)
   assert.equal(t.filter(l => l.includes('[◆ review-changes]')).length, 1)
   assert.ok(t.some(l => /\[✓ review:correctness [^\]]+\]─ ─▶\[✓ verify:correctness/.test(l)))
-  assert.ok(t.some(l => /\[✓ review:security [^\]]+\]─ ─▶\[● verify:security/.test(l)))
+  assert.ok(t.some(l => /\[✓ review:security [^\]]+\]─ ─▶\[✓ verify:security/.test(l)))
 })
 
 test('stages: the orchestrated scenario reduces cleanly into two turns, a tagged first dispatch and a workflow run', () => {

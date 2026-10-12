@@ -87,6 +87,8 @@ export const SCENARIOS: Record<string, Scenario> = {
     { after: 1500, ev: end('w2', 'answer') },
     { after: 200, ev: sp('w4', 'general-purpose', 'verify:security', { workflowRunId: 'wf_sim', model: 'claude-haiku-4-5' }) },
     { after: 2000, ev: end('w3', 'answer') },
+    { after: 1500, ev: end('w4', 'answer') },
+    { after: 300, ev: turn('end') },
   ] }] },
   'multi-session': { sessions: [
     { id: 'sim-multi-a', project: '/sim/project-alpha', steps: fanout },
