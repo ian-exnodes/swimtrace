@@ -268,3 +268,12 @@ test('stages: a snapshot written before turns existed reduces fine', () => {
   assert.equal(s2.agents.find(a => a.id === 'main')!.status, 'waiting')
   assert.ok(reduce(old as Snapshot, { kind: 'sessionEnd', at: 5, reason: 'other' }).session.endedAt === 5)
 })
+
+test('fix 7: a snapshot without turns gains [] on any reduce, so the next write carries it', () => {
+  const { turns: _t, ...old } = S()
+  for (const ev of [{ kind: 'tick', at: 1, staleWorkflowMs: 600_000 }, { kind: 'nope' }, { kind: 'mainTurn', at: 2, phase: 'end' }]) {
+    assert.deepEqual(reduce(old as Snapshot, ev).turns, [])
+  }
+  const s = S()
+  assert.equal(reduce(s, { kind: 'tick', at: 1, staleWorkflowMs: 600_000 }), s) // one that has them: same object still
+})

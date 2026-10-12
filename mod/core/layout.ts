@@ -130,18 +130,24 @@ function flow(agents: Agent[]): Flow {
 const agentsOf = (n: FNode): Agent[] => [...(n.a ? [n.a] : []), ...(n.chain ? agentsOf(n.chain) : []), ...n.kids.flatMap(agentsOf)]
 const firstStart = (n: FNode): number => n.a?.startedAt ?? Math.min(...n.kids.map(firstStart))
 
-/** A drawn turn: one of main's turns (or the dispatches seen before any recorded turn) and what it dispatched; `end` bounds it. */
-interface DrawnTurn { n: number; startedAt: number; end?: number; over: boolean; nodes: FNode[]; plan: string }
-/** The flow view's stages: the latest turn with a dispatch drawn in full, the earlier ones as one line each. */
+/**
+ * A drawn turn: one of main's turns (or the dispatches seen before any recorded turn) and what it dispatched.
+ * `end` bounds it (`bounded`: its end was missed, so the next turn's start); `current` is main's newest turn;
+ * `plan` is the classify text, undefined while the turn has dispatched nothing yet.
+ */
+interface DrawnTurn { n: number; startedAt: number; end?: number; bounded: boolean; current: boolean; nodes: FNode[]; plan?: string }
+/** The flow view's stages: the latest turn drawn in full, the earlier ones newest first. `over`: main's newest turn ended. */
 interface Stages { graph: Flow; mainShown: boolean; latest?: DrawnTurn; earlier: DrawnTurn[]; over: boolean }
 
 const CLASS = /\[class:([\w-]+)\]/
 const BRANCH_CELLS = 16
+const EARLIER_LINES = 3
 
 /**
  * Each dispatch (a child of main, ◆ nodes included) belongs to the turn with the latest start no later than its own.
- * Classify is the planning phase, turn start to first dispatch, plus a `[class:<word>]` tag when a dispatch carries one:
- * timing and the tag only, nothing inferred. Computed from every dispatch, so runningOnly does not change it.
+ * Turns with a dispatch are drawn, and main's newest turn while main runs in it (still planning, maybe). Classify is the
+ * planning phase, turn start to first dispatch, plus a `[class:<word>]` tag when a dispatch carries one: timing and
+ * the tag only, nothing inferred. Computed from every dispatch, so runningOnly does not change it.
  */
 function stages(s: Snapshot, vis: Agent[]): Stages {
   const graph = flow(vis)
@@ -156,27 +162,33 @@ function stages(s: Snapshot, vis: Agent[]): Stages {
     byTurn.set(i, [...(byTurn.get(i) ?? []), n])
     n.edge = n.a?.type ?? 'workflow' // the route's branch: the agent type chosen (why it was chosen is not observable)
   }
+  const live = s.agents.find(a => a.id === 'main')?.status === 'running' && ts.length > 0 ? [ts.length - 1] : []
   const synthetic = Math.min(...sent.filter(a => turnAt(a.startedAt) < 0).map(a => a.startedAt), ...(byTurn.get(-1) ?? []).map(firstStart))
-  const drawn = [...byTurn.keys()].sort((x, y) => x - y).map((i, k): DrawnTurn => {
-    const nodes = byTurn.get(i)!
+  const drawn = [...new Set([...byTurn.keys(), ...live])].sort((x, y) => x - y).map((i, k): DrawnTurn => {
+    const nodes = byTurn.get(i) ?? []
     const startedAt = i < 0 ? synthetic : ts[i]!.startedAt
     const mine = sent.filter(a => turnAt(a.startedAt) === i)
     const first = Math.min(...mine.map(a => a.startedAt), ...nodes.map(firstStart))
     const tag = mine.map(a => CLASS.exec(a.description)?.[1]).find(x => x !== undefined)
     const time = i < 0 ? '' : ` ${fmtDuration(first - startedAt)}` // before any recorded turn its start is unknown
+    const ended = i < 0 ? undefined : ts[i]!.endedAt
     // A turn whose end was missed is over by the next one's start at the latest.
-    const end = i < 0 ? ts[0]?.startedAt : ts[i]!.endedAt ?? ts[i + 1]?.startedAt
-    return { n: k + 1, startedAt, end, over: end !== undefined, nodes, plan: `${tag === undefined ? 'plan' : `classify: ${tag}`}${time}` }
+    const end = ended ?? (i < 0 ? ts[0]?.startedAt : ts[i + 1]?.startedAt)
+    const plan = mine.length + nodes.length === 0 ? undefined : `${tag === undefined ? 'plan' : `classify: ${tag}`}${time}`
+    return { n: k + 1, startedAt, end, bounded: ended === undefined && end !== undefined, current: i === ts.length - 1, nodes, plan }
   })
-  const latest = drawn.at(-1)
-  const mainShown = graph.main !== undefined
-  return { graph, mainShown, latest, earlier: drawn.slice(0, -1).reverse(), over: latest?.over ?? ts.at(-1)?.endedAt !== undefined }
+  return { graph, mainShown: graph.main !== undefined, latest: drawn.at(-1), earlier: drawn.slice(0, -1).reverse(), over: ts.at(-1)?.endedAt !== undefined }
 }
+
+// An earlier turn with an agent still running is drawn in full, so that agent stays in sight and selectable.
+const inFull = (t: DrawnTurn) => t.nodes.flatMap(agentsOf).some(a => a.status === 'running')
+/** The flow's selectable agents in drawn order: main (the latest request node), the latest turn's, then earlier full turns'. */
+const flowIds = (st: Stages): string[] =>
+  [...(st.mainShown ? ['main'] : []), ...[st.latest, ...st.earlier.filter(inFull)].flatMap(t => t?.nodes ?? []).flatMap(agentsOf).map(a => a.id)]
 
 export function selectableIds(s: Snapshot, o: LaneOpts): string[] {
   if (o.view !== 'agent') return lanes(s, o).flatMap(l => l.agents.map(a => a.id))
-  const st = stages(s, visible(s, o))
-  return [...(st.mainShown ? ['main'] : []), ...(st.latest?.nodes ?? []).flatMap(agentsOf).map(a => a.id)]
+  return flowIds(stages(o.now === undefined ? s : asDrawn(s, o.now), visible(s, o)))
 }
 
 // A `[class:<word>]` tag (and one space after it) is instrumentation, never part of the label.
@@ -186,6 +198,14 @@ const untag = (t: string) => {
   return u === t ? t : u.trim()
 }
 const label = (a: Agent) => untag(a.name ?? (a.id === 'main' ? 'main' : a.type === a.description ? a.type : a.description || a.type)) || a.type
+// On a route branch the edge already names the type: `[T1] Explore — list files` → `[T1] list files`.
+const branchLabel = (a: Agent) => {
+  const l = label(a)
+  const m = /^(\[T\d+\] )?([^]*)$/.exec(l)!
+  const head = `${a.type} — `
+  const rest = m[2]!.startsWith(head) ? m[2]!.slice(head.length) : ''
+  return rest.trim() === '' ? l : `${m[1] ?? ''}${rest}`
+}
 const dur = (a: Agent, now: number) => fmtDuration((a.endedAt ?? now) - a.startedAt)
 
 const RANGES_ZERO: [number, number][] = [[0x300, 0x36f], [0x200b, 0x200f], [0xfe00, 0xfe0f], [0x20d0, 0x20ff]]
@@ -253,26 +273,28 @@ const cap = (text: string, cells: number) => (cellWidth(text) <= cells ? text : 
 // `mcp__<server>__<tool>` → `<tool>`
 const toolName = (t: string) => t.replace(/^mcp__.*__(?=.)/, '')
 
-function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>): Seg {
+/** `bare`: without the current tool (to measure a flow that holds still while tools change). */
+function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>, bare = false): Seg {
   if (n.a === undefined) return { text: `[◆ ${cap(workflows[n.runId!] ?? n.runId!, LABEL_CELLS)}]`, bold: true }
   const a = n.a
-  const tool = a.status === 'running' && a.currentTool ? ` · ${cap(toolName(a.currentTool), TOOL_CELLS)}` : ''
+  const tool = !bare && a.status === 'running' && a.currentTool ? ` · ${cap(toolName(a.currentTool), TOOL_CELLS)}` : ''
   const time = a.id === 'main' ? '' : ` ${dur(a, o.now)}`
-  return { text: `[${GLYPH[a.status]} ${cap(label(a), LABEL_CELLS)}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined }
+  const text = cap(n.edge === undefined ? label(a) : branchLabel(a), LABEL_CELLS)
+  return { text: `[${GLYPH[a.status]} ${text}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined }
 }
 
 const EDGE = { dim: true } as const
 
 /**
- * The flow left to right: the stage nodes joined by `─▶`, then the route's branches; children start 4 cells after their
- * parent, a chained agent on the parent's own row.
+ * The flow left to right: the stage nodes joined by `─▶`, then the route's branches (`stacked`: from the next row, at
+ * column 2); children start 4 cells after their parent, a chained agent on the parent's own row.
  */
-function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>): Row[] {
+function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>, stacked = false, bare = false): Row[] {
   const grid: { col: number; seg: Seg }[][] = []
   const put = (row: number, col: number, seg: Seg) => (grid[row] ??= []).push({ col, seg })
   // Draws `n` at (row, col); returns the rows it took.
   const draw = (n: FNode, row: number, col: number): number => {
-    const seg = nodeSeg(n, o, workflows)
+    const seg = nodeSeg(n, o, workflows, bare)
     const w = cellWidth(seg.text)
     put(row, col, seg)
     if (n.chain === undefined) return n.kids.length === 0 ? 1 : fan(n.kids, row, col + w + 1, true) - row
@@ -307,7 +329,10 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
     put(0, col, seg)
     col += cellWidth(seg.text)
   })
-  if (branches.length > 0) fan(branches, 0, col + 1, true)
+  if (branches.length > 0) {
+    if (stacked) fan(branches, 1, 2, false)
+    else fan(branches, 0, col + 1, true)
+  }
   return grid.map(cells => {
     const out: Row = []
     let at = 0
@@ -337,32 +362,51 @@ function flowTree(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
 }
 
 /**
- * The stage nodes before the branches: request (main: running with its tool, else ✓ once the turn is over, ? when stale,
- * ◉ otherwise), then classify and route when a turn with a dispatch is drawn. None when main is hidden and nothing is.
+ * A turn's stage nodes. Request: on the latest turn, main: running with its tool (only on main's newest turn: main's
+ * live state is never drawn on an older turn), ? when stale, ✓ once the turn is over, ◉ otherwise; ✓ on any older turn.
+ * Then `[● plan <so far>]` while the turn has dispatched nothing, else classify and route. None when main is hidden
+ * and no turn is drawn. `bare`: without the current tool.
  */
-function stageSegs(st: Stages, o: LayoutOpts): Seg[] {
+function stageSegs(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: LayoutOpts, bare = false): Seg[] {
+  if (t === undefined && !st.mainShown) return []
   const m = st.graph.main
-  if (st.latest === undefined && !st.mainShown) return []
   const main = m?.status
-  const tool = main === 'running' && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
-  const done = main !== 'running' && main !== 'unknown' && (st.over || main === 'completed')
-  const glyph = main === 'running' ? GLYPH.running : main === 'unknown' ? GLYPH.unknown : done ? GLYPH.completed : '◉'
+  const current = latest && (t === undefined || t.current)
+  const live = current && main === 'running'
+  const stale = current && main === 'unknown'
+  const done = !live && !stale && (!latest || main === 'completed' || (t === undefined ? st.over : t.end !== undefined))
+  const glyph = live ? GLYPH.running : stale ? GLYPH.unknown : done ? GLYPH.completed : '◉'
+  const tool = live && !bare && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
   const req: Seg = {
-    text: `[${glyph} request${tool}]`, fg: done ? COLOR.completed : main && COLOR[main],
-    inverse: (st.mainShown && o.selectedId === 'main') || undefined,
+    text: `[${glyph} request${tool}]`, fg: done ? COLOR.completed : live ? COLOR.running : stale ? COLOR.unknown : main && COLOR[main],
+    inverse: (latest && st.mainShown && o.selectedId === 'main') || undefined,
   }
-  if (st.latest === undefined) return [req]
-  return [req, { text: `[${GLYPH.completed} ${cap(st.latest.plan, LABEL_CELLS)}]`, fg: COLOR.completed }, { text: '[⑂ route]', bold: true }]
+  if (t === undefined) return [req]
+  if (t.plan === undefined) return [req, { text: `[${GLYPH.running} plan ${fmtDuration(o.now - t.startedAt)}]`, fg: COLOR.running }]
+  return [req, { text: `[${GLYPH.completed} ${cap(t.plan, LABEL_CELLS)}]`, fg: COLOR.completed }, { text: '[⑂ route]', bold: true }]
 }
 
-/** `◉ request #<n> · <k> agents <summary> <duration>`: an earlier turn, its agents counted, not drawn. */
+/**
+ * One full turn: its stage nodes then its branches. Wide, the stages go on a row of their own and the branches fan
+ * from column 2 below them when one row would not fit (measured without current tools, so it does not flip as they change).
+ */
+function pipeline(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: LayoutOpts, workflows: Record<string, string>): Row[] {
+  const branches = t?.nodes ?? []
+  const lead = stageSegs(t, latest, st, o)
+  if (o.width < COMPACT_BELOW) return flowTree(lead, branches, o, workflows)
+  const bare = flowRows(stageSegs(t, latest, st, o, true), branches, o, workflows, false, true)
+  return flowRows(lead, branches, o, workflows, bare.some(r => cellWidth(rowText(r)) > o.width))
+}
+
+/** `◉ request #<n> · <k> agents <summary> <duration>`: an earlier turn, its agents counted, not drawn; `≤` when its end was missed. */
 function turnLine(t: DrawnTurn, now: number): Row {
   const ags = t.nodes.flatMap(agentsOf)
   const n = (...st: Status[]) => ags.filter(a => st.includes(a.status)).length
   const parts: [number, string][] = [[n('failed'), '✗ # failed'], [n('running'), '● # running'], [n('waiting'), '◌ # waiting'],
     [n('interrupted', 'killed'), '■ # stopped'], [n('unknown'), '? # unknown']]
   const sum = n('completed') === ags.length ? '✓' : parts.filter(([c]) => c > 0).map(([c, w]) => w.replace('#', String(c))).join(' ')
-  return [{ text: `◉ request #${t.n} · ${ags.length} agent${ags.length === 1 ? '' : 's'} ${sum} ${fmtDuration((t.end ?? now) - t.startedAt)}`, ...EDGE }]
+  const time = `${t.bounded ? '≤' : ''}${fmtDuration((t.end ?? now) - t.startedAt)}`
+  return [{ text: `◉ request #${t.n} · ${ags.length} agent${ags.length === 1 ? '' : 's'} ${sum} ${time}`, ...EDGE }]
 }
 
 /** clip, with a trailing … when the row was cut. */
@@ -413,20 +457,30 @@ export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
 
   const body: Row[] = o.height < 8 ? [] : [[]] // a blank row under the header, when there is room for it
   const st = stages(s, visible(s, o)) // pools view too: details name an agent's inferred predecessor
+  let ids: string[]
+  // Progress right under the latest turn (both views: the header keeps only the agent count), earlier turns below it
   if (o.view === 'agent') {
-    const lead = stageSegs(st, o)
-    const branches = st.latest?.nodes ?? []
-    body.push(...(o.width < COMPACT_BELOW ? flowTree : flowRows)(lead, branches, o, s.workflows))
-    body.push(...st.earlier.map(t => turnLine(t, o.now)))
+    ids = flowIds(st)
+    body.push(...pipeline(st.latest, true, st, o, s.workflows), progress(s))
+    let lines = 0
+    let more = 0
+    for (const t of st.earlier) {
+      if (inFull(t)) body.push(...pipeline(t, false, st, o, s.workflows))
+      else if (lines < EARLIER_LINES) { body.push(turnLine(t, o.now)); lines++ } else more++
+    }
+    if (more > 0) body.push([{ text: `… ${more} earlier turn${more === 1 ? '' : 's'}`, ...EDGE }])
   } else {
-    for (const l of lanes(s, o)) {
+    const ls = lanes(s, o)
+    ids = ls.flatMap(l => l.agents.map(a => a.id))
+    for (const l of ls) {
       body.push([{ text: `${l.pool.name} · ${l.pool.source}`, bold: true }])
       for (const a of l.agents) body.push(listLine(a, o.now, a.id === o.selectedId))
     }
+    body.push(progress(s))
   }
-  const sel = o.expanded ? s.agents.find(a => a.id === o.selectedId) : undefined
+  // details only for an agent on show: not one folded into an earlier turn's line, or filtered out
+  const sel = o.expanded && ids.includes(o.selectedId ?? '') ? s.agents.find(a => a.id === o.selectedId) : undefined
   if (sel) body.push(...details(sel, s, o, st.graph.after.get(sel.id)))
-  body.push(progress(s)) // both views: the header keeps only the agent count
   if (s.tasks.length > 0) {
     body.push([{ text: 'Tasks', bold: true }])
     for (const t of s.tasks) {

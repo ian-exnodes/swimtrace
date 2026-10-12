@@ -113,7 +113,7 @@ function apply(s: Snapshot, ev: Event): Snapshot {
         return { ...a, status, lastSeenAt: ev.at, currentTool: ev.phase === 'end' ? undefined : a.currentTool }
       })
       // ponytail: a start while a turn is still open (its end missed) leaves that end unknown; layout bounds it
-      if (ev.phase === 'start') return { ...m, turns: [...turnsOf(s), { startedAt: ev.at }].slice(-MAX_TURNS) }
+      if (ev.phase === 'start') return { ...m, turns: [...s.turns, { startedAt: ev.at }].slice(-MAX_TURNS) }
       const turns = closeTurn(s, ev.at)
       return turns === undefined ? m : { ...m, turns }
     }
@@ -157,7 +157,7 @@ function apply(s: Snapshot, ev: Event): Snapshot {
     case 'sessionEnd':
       return {
         ...s,
-        turns: closeTurn(s, ev.at) ?? turnsOf(s),
+        turns: closeTurn(s, ev.at) ?? s.turns,
         session: { ...s.session, endedAt: ev.at, endReason: ev.reason },
         agents: s.agents.map(a => {
           if (!isLive(a.status)) return a
@@ -178,11 +178,9 @@ function apply(s: Snapshot, ev: Event): Snapshot {
   }
 }
 
-// A snapshot written before turns existed has none.
-const turnsOf = (s: Snapshot): Turn[] => (Array.isArray(s.turns) ? s.turns : [])
 // The turns with the open (last) one ended at `at`; undefined when none is open.
 function closeTurn(s: Snapshot, at: number): Turn[] | undefined {
-  const ts = turnsOf(s)
+  const ts = s.turns
   const last = ts.at(-1)
   return last === undefined || last.endedAt !== undefined ? undefined : [...ts.slice(0, -1), { ...last, endedAt: at }]
 }
@@ -199,7 +197,9 @@ function fold(s: Snapshot): Snapshot {
   return { ...s, agents: s.agents.filter(a => !drop.has(a.id)), folded }
 }
 
-export function reduce(s: Snapshot, ev: unknown): Snapshot {
+export function reduce(snapshot: Snapshot, ev: unknown): Snapshot {
+  // A snapshot written before turns existed gains an empty list once, so what is written next always carries it.
+  const s = Array.isArray(snapshot.turns) ? snapshot : { ...snapshot, turns: [] }
   if (!isEvent(ev)) return s
   const next = apply(s, ev)
   return next === s ? s : fold(next)

@@ -35,17 +35,23 @@ npm i -g swimtrace        # or, from a clone: npm i -g .
   ```
 
   - **request** is the main conversation's turn: `[● request · Bash]` while it runs (with its current tool),
-    `[✓ request]` once the turn is over. It stands for main: select it to see main's details.
+    `[✓ request]` once the turn is over. It stands for main: select it to see main's details. While main is still
+    planning (no agent dispatched yet in this turn) the flow shows `[● request · Read]─▶[● plan 3s]`, with no route.
+    A turn that ends without dispatching anything is not drawn.
   - **plan / classify** is the planning phase, from the start of the turn to its first dispatch: `[✓ plan 8s]`. If an
     Agent call's description carries a `[class:<word>]` tag (say `[T1] list files [class:complex]`), the node reads
     `classify: <word>` instead. The tag is the only classification SwimTrace shows, and it is never part of a label.
     Before any turn was seen (the mod was installed mid-session) the node has no time.
   - **route** branches once per dispatched agent (or workflow run), in start order. The label on each branch is the
-    agent type chosen (`Explore`, `general-purpose`, `workflow`). Why that type was chosen cannot be seen.
-  - Earlier turns that dispatched agents are one dim line each, newest first, under the flow:
-    `◉ request #1 · 5 agents ✗ 1 failed 14s`. Their agents are not drawn or selectable.
-  - **Progress** counts every agent of the session: tasks done (when Task tools are used), then running, done,
-    failed (and waiting, stopped, unknown when any). The header keeps only the number of agents.
+    agent type chosen (`Explore`, `general-purpose`, `workflow`), so an agent's label drops a leading `<type> — `
+    there (`[T1] Explore — list files` shows as `[T1] list files`). Why that type was chosen cannot be seen. When the
+    flow is too wide for one row, the branches hang below the stages, from the left edge.
+  - **Progress**, right under the flow, counts every agent of the session: tasks done (when Task tools are used),
+    then running, done, failed (and waiting, stopped, unknown when any). The header keeps only the number of agents.
+  - Earlier turns that dispatched agents are one dim line each under Progress, newest first:
+    `◉ request #1 · 5 agents ✗ 1 failed 14s` (at most three, then `… 4 earlier turns`). Their agents are not drawn or
+    selectable. `≤14s` means the turn's end was missed and the next turn's start bounds it. An earlier turn with an
+    agent still running is drawn in full instead, so that agent stays in sight.
 
   An agent node is `[status label · current tool duration]`. A solid arrow means who started whom. `◆` is a workflow
   run: its agents hang off it. A dashed arrow (`─ ─▶`) is step order that SwimTrace infers from workflow labels shaped

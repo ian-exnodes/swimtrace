@@ -257,7 +257,8 @@ test('height limit keeps the header and says how many rows were cut', () => {
 
 test('flow: a row wider than the screen is cut with a trailing …', () => {
   const t = text(layout(mockup(), opts({ width: 70 })))
-  assert.equal(t[2], '[● request · Bash]─▶[✓ plan 0s]─▶[⑂ route]─┬─ workflow ──▶[◆ review-w…')
+  assert.equal(t[2], '[● request · Bash]─▶[✓ plan 0s]─▶[⑂ route]') // too wide for one row: stacked
+  assert.equal(t[3], '  ├─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bu…')
   assert.ok(t.every(l => cellWidth(l) <= 70))
 })
 
@@ -422,31 +423,131 @@ test('stages: no [class:…] tag gives `plan <duration>`; the tag is stripped fr
   assert.match(text(layout(snap([spawn('x', 1, { description: '[class:x]' })]), opts()))[2]!, /\[● Explore 1m39s\]$/)
 })
 
-test('stages: an earlier turn is one dim line under the pipeline; its agents are not drawn or selectable', () => {
+test('stages: an earlier turn is one dim line under Progress; its agents are not drawn or selectable', () => {
   const s = snap([
     { kind: 'mainTurn', at: 1_000, phase: 'start' }, spawn('a', 2_000), spawn('b', 3_000), spawn('k', 3_500, { parentId: 'b' }),
     { kind: 'runEnd', at: 5_000, agentId: 'a', reason: 'answer' }, { kind: 'runEnd', at: 6_000, agentId: 'b', reason: 'error' },
+    { kind: 'runEnd', at: 6_500, agentId: 'k', reason: 'aborted' },
     { kind: 'mainTurn', at: 13_000, phase: 'end' },
-    { kind: 'mainTurn', at: 20_000, phase: 'start' }, // no dispatch: not drawn
+    { kind: 'mainTurn', at: 20_000, phase: 'start' }, // no dispatch, ended: never drawn
     { kind: 'mainTurn', at: 21_000, phase: 'end' },
     { kind: 'mainTurn', at: 30_000, phase: 'start' }, spawn('c', 31_000),
   ])
   const rows = layout(s, opts())
   const t = text(rows)
-  assert.deepEqual(t.slice(2, 4), [
+  assert.deepEqual(t.slice(2, 5), [
     '[● request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● c 1m09s]',
-    '◉ request #1 · 3 agents ✗ 1 failed ● 1 running 12s',
+    'Progress  1 running · 1 done · 1 failed · 1 stopped',
+    '◉ request #1 · 3 agents ✗ 1 failed ■ 1 stopped 12s',
   ])
-  assert.equal(rows[3]![0]!.dim, true)
+  assert.equal(rows[4]![0]!.dim, true)
   assert.deepEqual(selectableIds(s, { view: 'agent', runningOnly: false, rules: [] }), ['main', 'c'])
-  // all done: ✓; turns are numbered from the oldest drawn one; newest first
+  // all done: ✓; numbered from the oldest drawn turn, newest first; a missed end is bounded by the next start: ≤
   const more = snap([
     { kind: 'mainTurn', at: 1_000, phase: 'start' }, spawn('a', 2_000), { kind: 'runEnd', at: 3_000, agentId: 'a', reason: 'answer' },
-    { kind: 'mainTurn', at: 4_000, phase: 'start' }, // the first turn's end was missed: it is bounded by this start
+    { kind: 'mainTurn', at: 4_000, phase: 'start' }, // the first turn's end was missed
     spawn('b', 5_000), { kind: 'runEnd', at: 6_000, agentId: 'b', reason: 'answer' }, { kind: 'mainTurn', at: 7_000, phase: 'end' },
     { kind: 'mainTurn', at: 8_000, phase: 'start' }, spawn('c', 9_000),
   ])
-  assert.deepEqual(text(layout(more, opts())).slice(3, 5), ['◉ request #2 · 1 agent ✓ 3s', '◉ request #1 · 1 agent ✓ 3s'])
+  assert.deepEqual(text(layout(more, opts())).slice(4, 6), ['◉ request #2 · 1 agent ✓ 3s', '◉ request #1 · 1 agent ✓ ≤3s'])
+})
+
+test('fix 1: at most 3 earlier-turn lines, then how many more; Progress stays in sight at 9 rows', () => {
+  const evs: object[] = []
+  for (let i = 0; i < 8; i++) {
+    evs.push({ kind: 'mainTurn', at: i * 3000 + 1, phase: 'start' }, spawn(`a${i}`, i * 3000 + 500),
+      { kind: 'runEnd', at: i * 3000 + 900, agentId: `a${i}`, reason: i === 2 ? 'error' : 'answer' }, { kind: 'mainTurn', at: i * 3000 + 1000, phase: 'end' })
+  }
+  const t = text(layout(snap(evs), opts({ width: 120, height: 9 })))
+  assert.deepEqual(t.slice(2), [
+    '[✓ request]─▶[✓ plan 0s]─▶[⑂ route]─── Explore ──▶[✓ a7 0s]',
+    'Progress  0 running · 7 done · 1 failed',
+    '◉ request #7 · 1 agent ✓ 0s',
+    '◉ request #6 · 1 agent ✓ 0s',
+    '◉ request #5 · 1 agent ✓ 0s',
+    '… 4 earlier turns',
+  ])
+})
+
+test('fix 2: while main runs, its newest turn is drawn even before a dispatch: planning, no route yet', () => {
+  const base = [
+    { kind: 'mainTurn', at: 1_000, phase: 'start' }, spawn('a', 2_000), { kind: 'runEnd', at: 5_000, agentId: 'a', reason: 'answer' },
+    { kind: 'mainTurn', at: 6_000, phase: 'end' }, { kind: 'mainTurn', at: 97_000, phase: 'start' }, { kind: 'toolCall', at: 98_000, agentId: 'main', tool: 'Read' },
+  ]
+  const t = text(layout(snap(base), opts()))
+  assert.deepEqual(t.slice(2, 5), ['[● request · Read]─▶[● plan 3s]', 'Progress  0 running · 1 done · 0 failed', '◉ request #1 · 1 agent ✓ 5s'])
+  assert.equal(layout(snap(base), opts()).flat().find(g => g.text === '[● plan 3s]')!.fg, 'cyan')
+  assert.deepEqual(selectableIds(snap(base), { view: 'agent', runningOnly: false, rules: [] }), ['main'])
+  assert.deepEqual(text(layout(snap(base), opts({ width: 59 }))).slice(2, 4), ['[● request · Read]', '  └▶ [● plan 3s]'])
+  // its first dispatch: classify and route
+  const sent = snap([...base, spawn('b', 99_000, { description: 'x [class:quick]' })])
+  assert.match(text(layout(sent, opts()))[2]!, /^\[● request · Read\]─▶\[✓ classify: quick 2s\]─▶\[⑂ route\]─── Explore ──▶\[● x 1s\]$/)
+  // ended with no dispatch: gone, never a line of its own; the older turn's request is done, not live
+  const empty = snap([...base, { kind: 'mainTurn', at: 99_000, phase: 'end' }])
+  assert.deepEqual(text(layout(empty, opts())).slice(2), ['[✓ request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[✓ a 3s]', 'Progress  0 running · 1 done · 0 failed'])
+})
+
+test('fix 2 and 5: an earlier turn with a running agent is drawn in full, its request done, its agents selectable', () => {
+  const s = snap([
+    { kind: 'mainTurn', at: 1_000, phase: 'start' }, spawn('bg', 2_000), { kind: 'mainTurn', at: 3_000, phase: 'end' },
+    { kind: 'mainTurn', at: 10_000, phase: 'start' }, spawn('n', 12_000), { kind: 'runEnd', at: 20_000, agentId: 'n', reason: 'answer' },
+    { kind: 'mainTurn', at: 21_000, phase: 'end' }, { kind: 'mainTurn', at: 95_000, phase: 'start' }, { kind: 'toolCall', at: 96_000, agentId: 'main', tool: 'Bash' },
+  ])
+  assert.deepEqual(text(layout(s, opts())).slice(2), [
+    '[● request · Bash]─▶[● plan 5s]',
+    'Progress  1 running · 1 done · 0 failed',
+    '◉ request #2 · 1 agent ✓ 11s',
+    '[✓ request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● bg 1m38s]',
+  ])
+  assert.deepEqual(selectableIds(s, { view: 'agent', runningOnly: false, rules: [] }), ['main', 'bg'])
+})
+
+test('fix 3: a pipeline too wide for one row stacks its branches under the stages; selection keeps the drawn order', () => {
+  const s = stagesMockup()
+  const o = { view: 'agent' as const, runningOnly: false, rules: [], now: 100_000 }
+  const t = text(layout(s, opts({ width: 100 })))
+  assert.deepEqual(t.slice(2, 8), [
+    '[● request · Bash]─▶[✓ classify: complex 8s]─▶[⑂ route]',
+    '  ├─ Explore ───▶[✓ [T1] list files 13s]',
+    '  ├─ Explore ───▶[✓ [T2] count tests 10s]',
+    '  └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]',
+    '                               └─▶[✗ review:perf 42s]',
+    'Progress  tasks 3/5 done · 1 running · 3 done · 1 failed',
+  ])
+  assert.equal(text(layout(s, opts({ width: 140 })))[2], STAGES_BODY[0]!.replace('[✓ request]', '[● request · Bash]'))
+  assert.match(text(layout(s, opts({ width: 140 })))[2]!, /─┬─ Explore ───▶\[✓ \[T1\]/) // fits: one row
+  // the choice ignores current tools: a long tool name does not flip it
+  const tooly = stagesMockup([{ kind: 'toolCall', at: 99_000, agentId: 'v', tool: 'mcp__srv__a_very_long_tool_name' }])
+  assert.match(text(layout(tooly, opts({ width: 140 })))[2]!, /─┬─ Explore/)
+  const names: Record<string, string> = { main: 'request', t1: '[T1] list files', t2: '[T2] count tests', b: 'review:bugs', v: 'verify:bugs', p: 'review:perf' }
+  const drawn = (width: number) => text(layout(s, opts({ width })))
+    .slice(2).flatMap(l => [...l.matchAll(/\[[●✓✗] ((?:\[T\d\] )?[^·\][]+?)(?: ·| \d|\])/g)].map(m => m[1])).filter(x => !/^(plan|classify)/.test(x!))
+  for (const width of [100, 140]) assert.deepEqual(drawn(width), selectableIds(s, o).map(id => names[id]))
+})
+
+test('fix 4: a route branch drops `<type> — ` from its node label, keeping a [T<n>] prefix; nowhere else', () => {
+  const s = snap([
+    spawn('a', 1, { description: '[T1] Explore — list files in src' }),
+    spawn('b', 2, { description: 'Explore — scan', type: 'Plan' }), // another type: kept
+    spawn('c', 3, { description: 'Explore — ' }), // nothing left: kept whole
+    spawn('k', 4, { parentId: 'a', description: 'Explore — nested' }), // not a branch: kept
+  ])
+  const t = text(layout(s, opts({ width: 160 })))
+  assert.match(t[2]!, /─▶\[● \[T1\] list files in src 1m39s\]───▶\[● Explore — nested 1m39s\]$/)
+  assert.ok(t.some(l => l.includes('[● Explore — scan 1m39s]')))
+  assert.ok(t.some(l => l.includes('[● Explore —  1m39s]'))) // the description as given
+  assert.ok(text(layout(s, opts({ view: 'pool' }))).includes('  ● [T1] Explore — list files in src 1m39s'))
+  assert.ok(text(layout(s, opts({ selectedId: 'a', expanded: true, width: 160 }))).some(l => l.startsWith('id a  label [T1] Explore — list files in src  parent')))
+})
+
+test('fix 6: details only for an agent on show, not one folded into an earlier turn\'s line', () => {
+  const s = snap([
+    { kind: 'mainTurn', at: 1_000, phase: 'start' }, spawn('old', 2_000), { kind: 'runEnd', at: 2_500, agentId: 'old', reason: 'answer' },
+    { kind: 'mainTurn', at: 3_000, phase: 'end' }, { kind: 'mainTurn', at: 10_000, phase: 'start' }, spawn('n', 12_000),
+  ])
+  assert.ok(!text(layout(s, opts({ selectedId: 'old', expanded: true }))).some(l => l.startsWith('id ')))
+  assert.ok(text(layout(s, opts({ selectedId: 'n', expanded: true }))).some(l => l.startsWith('id n ')))
+  assert.ok(text(layout(s, opts({ selectedId: 'old', expanded: true, view: 'pool' }))).some(l => l.startsWith('id old '))) // listed there
 })
 
 test('stages: selectableIds is the drawn order, main first as the request node', () => {
@@ -495,15 +596,17 @@ test('stages: runningOnly keeps the latest drawn turn\'s stage nodes, drops turn
 })
 
 test('stages: dispatches before any recorded turn form a turn of their own, with no plan time', () => {
-  const s = snap([spawn('a', 1_000), { kind: 'mainTurn', at: 5_000, phase: 'start' }, spawn('b', 6_000)])
+  const s = snap([spawn('a', 1_000), { kind: 'runEnd', at: 2_000, agentId: 'a', reason: 'answer' }, { kind: 'mainTurn', at: 5_000, phase: 'start' }, spawn('b', 6_000)])
   const t = text(layout(s, opts()))
-  assert.deepEqual(t.slice(2, 4), ['[● request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● b 1m34s]', '◉ request #1 · 1 agent ● 1 running 4s'])
+  assert.deepEqual(t.slice(2, 5), ['[● request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● b 1m34s]', 'Progress  1 running · 1 done · 0 failed',
+    '◉ request #1 · 1 agent ✓ ≤4s']) // its end is not known: bounded by the next turn's start
   assert.match(text(layout(snap([spawn('a', 1_000)]), opts()))[2]!, /^\[◉ request\]─▶\[✓ plan\]─▶\[⑂ route\]/)
 })
 
 test('stages: main alone draws the request node alone; the header keeps only the agent count', () => {
-  const t = text(layout(snap([{ kind: 'mainTurn', at: 1_000, phase: 'start' }, { kind: 'toolCall', at: 2_000, agentId: 'main', tool: 'Read' }]), opts()))
-  assert.deepEqual(t, ['SWIMTRACE  c4k-mobile  session sess-123   0 agents', '', '[● request · Read]', 'Progress  0 running · 0 done · 0 failed'])
+  const t = text(layout(snap([{ kind: 'mainTurn', at: 1_000, phase: 'start' }, { kind: 'mainTurn', at: 2_000, phase: 'end' }]), opts()))
+  assert.deepEqual(t, ['SWIMTRACE  c4k-mobile  session sess-123   0 agents', '', '[✓ request]', 'Progress  0 running · 0 done · 0 failed'])
+  assert.deepEqual(text(layout(snap([]), opts())).slice(2), ['[◉ request]', 'Progress  0 running · 0 done · 0 failed'])
 })
 
 test('stages: branch labels are capped at 16 cells and padded so a group\'s arrows line up, at both widths', () => {
