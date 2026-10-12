@@ -286,8 +286,8 @@ function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>, bar
 const EDGE = { dim: true } as const
 
 /**
- * The flow left to right: the stage nodes joined by `─▶`, then the route's branches (`stacked`: from the next row, at
- * column 2); children start 4 cells after their parent, a chained agent on the parent's own row.
+ * The flow left to right: the stage nodes joined by `─▶`, then the route's branches (`stacked`: from two rows down, at
+ * column 2, a `┌──┘` row joining them to the route); children start 4 cells after their parent, a chained agent on the parent's own row.
  */
 function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>, stacked = false, bare = false): Row[] {
   const grid: { col: number; seg: Seg }[][] = []
@@ -330,8 +330,12 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
     col += cellWidth(seg.text)
   })
   if (branches.length > 0) {
-    if (stacked) fan(branches, 1, 2, false)
-    else fan(branches, 0, col + 1, true)
+    if (stacked) {
+      // A connector from under the route's ⑂ back to column 2, so the branches below visibly hang off the route.
+      const fork = col - cellWidth(lead.at(-1)!.text) + 1
+      put(1, 2, { text: `┌${'─'.repeat(Math.max(0, fork - 3))}┘`, ...EDGE })
+      fan(branches, 2, 2, false)
+    } else fan(branches, 0, col + 1, true)
   }
   return grid.map(cells => {
     const out: Row = []

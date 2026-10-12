@@ -258,7 +258,8 @@ test('height limit keeps the header and says how many rows were cut', () => {
 test('flow: a row wider than the screen is cut with a trailing …', () => {
   const t = text(layout(mockup(), opts({ width: 70 })))
   assert.equal(t[2], '[● request · Bash]─▶[✓ plan 0s]─▶[⑂ route]') // too wide for one row: stacked
-  assert.equal(t[3], '  ├─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bu…')
+  assert.equal(t[3], '  ┌───────────────────────────────┘')
+  assert.equal(t[4], '  ├─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bu…')
   assert.ok(t.every(l => cellWidth(l) <= 70))
 })
 
@@ -506,8 +507,9 @@ test('fix 3: a pipeline too wide for one row stacks its branches under the stage
   const s = stagesMockup()
   const o = { view: 'agent' as const, runningOnly: false, rules: [], now: 100_000 }
   const t = text(layout(s, opts({ width: 100 })))
-  assert.deepEqual(t.slice(2, 8), [
+  assert.deepEqual(t.slice(2, 9), [
     '[● request · Bash]─▶[✓ classify: complex 8s]─▶[⑂ route]',
+    '  ┌────────────────────────────────────────────┘', // joins the branches to the route: its ┘ sits under the ⑂
     '  ├─ Explore ───▶[✓ [T1] list files 13s]',
     '  ├─ Explore ───▶[✓ [T2] count tests 10s]',
     '  └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]',

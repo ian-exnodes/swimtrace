@@ -296,7 +296,8 @@ Progress  tasks 3/5 done · 1 running · 3 done · 1 failed
   no route yet); a turn that ends with no dispatch is never drawn. The latest is drawn in full: `[◉ request]` ─▶
   classify ─▶ `[⑂ route]` (joined by `─▶`), then one branch per dispatch, or per ◆ workflow node, in start order.
   When that row, measured without current tools, is wider than the screen, the branches fan from column 2 on the rows
-  below the stages (`  ├─ Explore ──▶[…]`); the order of rows, so of selection, is unchanged.
+  below the stages (`  ├─ Explore ──▶[…]`), joined to the route by a `  ┌───┘` row whose `┘` sits under the `⑂`;
+  the order of rows, so of selection, is unchanged.
   - Request: main, on the latest turn only. `[● request · <tool>]` while main runs in that turn, `[? request]` in a
     stale session, `[✓ request]` once the turn is over (it ended, a later turn started, or the session ended),
     `[◉ request]` otherwise; an older turn's request is always `✓` (main's live state is never drawn on it).
