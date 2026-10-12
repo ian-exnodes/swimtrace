@@ -29,15 +29,22 @@ const fanout: Step[] = [
 // The orchestration stages: a turn plans for ~1.5 s, dispatches two Explore agents (the first tagged [class:complex]) and a
 // workflow run (review:perf fails, verify:bugs follows review:bugs), moves five tasks along; then a short second turn.
 const WF = { workflowRunId: 'wf_orch' }
+// A short request first, then the big one, so the demo ends on the full route fan-out (the short one folds to a line).
 const orchestrated: Step[] = [
   { after: 0, ev: turn('start') },
+  { after: 800, ev: tool('main', 'Agent') },
+  { after: 0, ev: sp('t0', 'Explore', '[T1] Explore — find the changed files', { model: 'claude-haiku-4-5' }) },
+  { after: 500, ev: tool('t0', 'Grep') },
+  { after: 1200, ev: end('t0', 'answer') },
+  { after: 300, ev: turn('end') },
+  { after: 1200, ev: turn('start') },
   { after: 300, ev: tool('main', 'TaskCreate') },
   { after: 100, ev: task('1', 'List source files') }, { after: 50, ev: task('2', 'Count test files') },
   { after: 50, ev: task('3', 'Review for bugs') }, { after: 50, ev: task('4', 'Review for performance') },
   { after: 50, ev: task('5', 'Verify the findings') },
   { after: 900, ev: tool('main', 'Agent') },
-  { after: 0, ev: sp('t1', 'Explore', '[T1] Explore — list files in src [class:complex]', { model: 'claude-haiku-4-5' }) },
-  { after: 200, ev: sp('t2', 'Explore', '[T2] Explore — count test files', { model: 'claude-haiku-4-5' }) },
+  { after: 0, ev: sp('t1', 'Explore', '[T2] Explore — list files in src [class:complex]', { model: 'claude-haiku-4-5' }) },
+  { after: 200, ev: sp('t2', 'Explore', '[T3] Explore — count test files', { model: 'claude-haiku-4-5' }) },
   { after: 100, ev: moved('1', 'in_progress') }, { after: 0, ev: moved('2', 'in_progress') },
   { after: 400, ev: tool('t1', 'Glob') }, { after: 300, ev: tool('t2', 'Grep') },
   { after: 500, ev: tool('main', 'Workflow') },
@@ -55,12 +62,6 @@ const orchestrated: Step[] = [
   { after: 500, ev: tool('v1', 'Grep') }, { after: 1200, ev: tool('v1', 'Bash') },
   { after: 1200, ev: end('v1', 'answer') }, { after: 0, ev: moved('5', 'completed') },
   { after: 400, ev: turn('end') },
-  { after: 1200, ev: turn('start') },
-  { after: 1000, ev: tool('main', 'Agent') },
-  { after: 0, ev: sp('t3', 'Explore', '[T6] Explore — summarize the review', { model: 'claude-haiku-4-5' }) },
-  { after: 500, ev: tool('t3', 'Read') },
-  { after: 1500, ev: end('t3', 'answer') },
-  { after: 300, ev: turn('end') },
 ]
 
 export const SCENARIOS: Record<string, Scenario> = {

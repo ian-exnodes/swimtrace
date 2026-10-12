@@ -57,20 +57,21 @@ test('stages: the orchestrated scenario reduces cleanly into two turns, a tagged
   assert.ok(total >= 15_000 && total <= 20_000, `${total} ms`)
 })
 
-test('stages: mid-run the orchestrated flow shows its stages; at the end the first turn is one line', () => {
+test('stages: a short request first, then the big one; the demo ends on the full route fan-out', () => {
   const draw = (until?: number) => {
     const [s] = playInstant('orchestrated', 0, until)
     return layout(s!, { width: 160, height: 40, now: s!.writtenAt, view: 'agent', runningOnly: false, expanded: false, rules: [] }).map(rowText)
   }
-  const mid = draw(6_000)
-  assert.match(mid[2]!, /^\[● request · \w+\]─▶\[✓ classify: complex 1s\]─▶\[⑂ route\]─┬─ Explore ───▶\[● \[T1\] list files in src · Read 4s\]$/)
-  assert.ok(mid.some(l => /├─ Explore ───▶\[● \[T2\] count test files · Grep 4s\]$/.test(l)))
+  assert.match(draw(2_000)[2]!, /^\[● request · Agent\]─▶\[✓ plan 0s\]─▶\[⑂ route\]─── Explore ──▶\[● \[T1\] find the changed files · Grep 1s\]$/)
+  const mid = draw(10_000)
+  assert.match(mid[2]!, /^\[● request · \w+\]─▶\[✓ classify: complex 1s\]─▶\[⑂ route\]─┬─ Explore ───▶\[● \[T2\] list files in src · Read 4s\]$/)
+  assert.ok(mid.some(l => /├─ Explore ───▶\[● \[T3\] count test files · Grep 4s\]$/.test(l)))
   assert.ok(mid.some(l => /└─ workflow ──▶\[◆ review-changes\]─┬─▶\[● review:bugs/.test(l)))
-  assert.ok(!mid.some(l => /request #/.test(l)))
   assert.ok(mid.some(l => /^Progress {2}tasks 0\/5 done · 4 running/.test(l)))
   const end = draw()
-  assert.match(end[2]!, /^\[✓ request\]─▶\[✓ plan 1s\]─▶\[⑂ route\]─── Explore ──▶\[✓ \[T6\] summarize the review 2s\]$/)
-  assert.match(end[3]!, /^Progress /)
-  assert.match(end[4]!, /^◉ request #1 · 5 agents ✗ 1 failed \d+s$/)
+  assert.match(end[2]!, /^\[✓ request\]─▶\[✓ classify: complex 1s\]─▶\[⑂ route\]─┬─ Explore ───▶\[✓ \[T2\] list files in src 5s\]$/)
+  assert.ok(end.some(l => /└─ workflow ──▶\[◆ review-changes\]─┬─▶\[✓ review:bugs 7s\]─ ─▶\[✓ verify:bugs 2s\]$/.test(l)))
+  assert.ok(end.some(l => /└─▶\[✗ review:perf 6s\]$/.test(l)))
   assert.ok(end.includes('Progress  tasks 4/5 done · 0 running · 5 done · 1 failed'))
+  assert.ok(end.includes('◉ request #1 · 1 agent ✓ 2s'))
 })

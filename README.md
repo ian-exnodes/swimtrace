@@ -67,8 +67,9 @@ npm i -g swimtrace        # or, from a clone: npm i -g .
   `q` exists only in the CLI.
 - The band uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
 - `swimtrace sim fanout|failure|workflow|orchestrated|multi-session|crash [--speed N]` plays synthetic events (no
-  tokens), marked `SIMULATED`. `N` must be a number greater than 0. `orchestrated` walks through the stages: a tagged
-  dispatch, a workflow run with a failure, five tasks, then a second turn.
+  tokens), marked `SIMULATED`. `N` must be a number greater than 0. `orchestrated` walks through the stages: a short
+  first request (it folds to one line), then a tagged dispatch, a workflow run with a failure and five tasks, ending
+  on the full route fan-out.
 
 ## Pools
 
