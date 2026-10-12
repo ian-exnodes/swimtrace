@@ -505,3 +505,15 @@ test('stages: main alone draws the request node alone; the header keeps only the
   const t = text(layout(snap([{ kind: 'mainTurn', at: 1_000, phase: 'start' }, { kind: 'toolCall', at: 2_000, agentId: 'main', tool: 'Read' }]), opts()))
   assert.deepEqual(t, ['SWIMTRACE  c4k-mobile  session sess-123   0 agents', '', '[● request · Read]', 'Progress  0 running · 0 done · 0 failed'])
 })
+
+test('stages: branch labels are capped at 16 cells and padded so a group\'s arrows line up, at both widths', () => {
+  const s = snap([spawn('a', 1, { type: 'a-very-long-agent-type-name-here' }), spawn('b', 2)])
+  const t = text(layout(s, opts()))
+  assert.deepEqual(t.slice(2, 4), [
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─┬─ a-very-long-age… ──▶[● a 1m39s]', // 16 cells: 15 and the …
+    '                                 └─ Explore ───────────▶[● b 1m39s]',
+  ])
+  assert.equal(t[2]!.indexOf('▶[● a'), t[3]!.indexOf('▶[● b'))
+  const narrow = text(layout(s, opts({ width: 59 })))
+  assert.ok(narrow.includes('      ├▶ a-very-long-age… ▶ [● a 1m39s]'))
+})
