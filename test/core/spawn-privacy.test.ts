@@ -34,3 +34,15 @@ test('an ordinary Agent-tool description is unchanged', () => {
   const d = '[T1] Explore — list mod/core files'
   assert.equal(desc(spawnEvent({ description: d, prompt: 'List the files under mod/core and report.', subagentType: 'Explore' }, 'a1', 5)), d)
 })
+
+test('a multi-line prompt whose description has the newlines collapsed is replaced', () => {
+  const prompt = 'Count files\n\nin cli. OWLWORD'
+  const ev = spawnEvent({ description: 'Count files in cli. OWLWORD', prompt, subagentType: 'general-purpose', workflow: wf }, 'a1', 5)
+  assert.equal(desc(ev), 'agent 2')
+  assert.ok(!JSON.stringify(ev).includes('OWLWORD'))
+})
+
+test('a missing prompt does not throw and leaves the description unchanged', () => {
+  const ev = spawnEvent({ description: '[T1] x', prompt: undefined as unknown as string, subagentType: 'Explore' }, 'a1', 5)
+  assert.equal(desc(ev), '[T1] x')
+})

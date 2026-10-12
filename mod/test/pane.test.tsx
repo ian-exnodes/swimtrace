@@ -52,6 +52,17 @@ test('/swimtrace registers on session start, and only running it opens the pane'
   expect(r.text).toBe('SwimTrace opened.')
 })
 
+test('pane colors are theme keys, never raw ANSI names', async ($, on) => {
+  await boot($, on, 'terminal')
+  const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...PANE })
+  const bar = await ui.find({ type: 'Text', text: /^\[scan repo ●/ })
+  expect(bar?.props.color).toBe('suggestion')
+  const colors = (await ui.findAll({ type: 'Text' })).map(t => t.props.color).filter(c => c !== undefined)
+  expect(colors.length).toBeGreaterThan(0)
+  for (const raw of ['yellow', 'cyan', 'gray', 'green', 'red', 'magenta']) expect(colors).not.toContain(raw)
+  await ui.unmount()
+})
+
 test('j and k walk the selection in lane order; d shows the selected agent', async ($, on) => {
   await boot($, on, 'terminal')
   const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...PANE })

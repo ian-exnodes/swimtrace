@@ -1,15 +1,17 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, ThemeKey, Timer } from 'claude-code'
 import { DEFAULT_STALE_WORKFLOW_MS, emptySnapshot, type Snapshot } from '../core/model.ts'
 import { reduceAll, type Event } from '../core/reducer.ts'
 import { compileRules, DEFAULT_CONFIG, parseConfig } from '../core/pools.ts'
-import { cellWidth, layout, selectableIds, type Row } from '../core/layout.ts'
+import { cellWidth, layout, selectableIds, type Fg, type Row } from '../core/layout.ts'
 import type { SwimtraceUi } from '../types'
 import { listEvents, spawnEvent, toolCallEvent, toolResultEvents, turnEndEvent } from './events.ts'
 
 // The $.state contract (../types/index.d.ts) holds copies of the core's types; test/contract-sync.ts keeps them identical.
 
 export const PANE = 'swimtrace'
+// The pane uses Claude Code's theme colors so it stays readable on light and dark themes; the CLI keeps ANSI.
+const THEME: Record<Fg, ThemeKey> = { green: 'success', red: 'error', yellow: 'warning', cyan: 'suggestion', magenta: 'merged', gray: 'inactive' }
 const snap = atom({ plugin: 'swimtrace', key: 'snap' } as const, undefined as Snapshot | undefined)
 const config = atom({ plugin: 'swimtrace', key: 'config' } as const, DEFAULT_CONFIG)
 const ui = atom({ plugin: 'swimtrace', key: 'ui' } as const, { view: 'pool', runningOnly: false, expanded: false } as SwimtraceUi)
@@ -255,7 +257,7 @@ export const register: Register = on => {
         {rows.map(r => (
           <Box flexDirection="row">
             {r.length === 0 ? <Text> </Text> : r.filter(g => g.text !== '').map(g => (
-              <Text color={g.fg} bold={g.bold} dimColor={g.dim} inverse={g.inverse}>{g.text}</Text>
+              <Text color={g.fg === undefined ? undefined : THEME[g.fg]} bold={g.bold} dimColor={g.dim} inverse={g.inverse}>{g.text}</Text>
             ))}
           </Box>
         ))}

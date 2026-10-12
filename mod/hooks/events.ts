@@ -10,10 +10,10 @@ type SpawnIn = {
 }
 // An unlabelled workflow agent() is spawned with its prompt (or a prefix of it) as the description. The prompt is
 // read here only to recognise that; it is never stored.
-const derivedFromPrompt = (description: string, prompt: string): boolean => {
-  const d = description.trim(), p = prompt.trim()
+const norm = (s: string): string => s.replace(/\s+/g, ' ').trim()
+const derivedFromPrompt = (description: string, prompt?: string): boolean => {
+  const d = norm(description), p = norm(prompt ?? '')
   if (d === '') return false
-  if (d === p.split('\n', 1)[0]!.trim()) return true
   const stem = d.replace(/(…|\.\.\.)$/, '').trimEnd()
   return stem !== '' && p.startsWith(stem)
 }

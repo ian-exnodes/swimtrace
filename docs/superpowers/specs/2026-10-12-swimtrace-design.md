@@ -367,7 +367,7 @@ unchanged. One real validation run (two parallel Explore agents), run only with 
 
 ## 14. Implementation outline (detailed plan follows via writing-plans)
 
-1. Spikes S1, S2: S1 ran via a headless `--plugin-dir` run; S2 is deferred to the real validation run.
+1. Spikes S1, S2: S1 ran via a headless `--plugin-dir` run; S2 was resolved by the real run (a workflow agent's label becomes the spawn description; an unlabelled agent's prompt-derived description is replaced with "agent <n>").
 2. `core/model.ts` + `core/reducer.ts` with tests (cases 1–4, 7, 8).
 3. `core/pools.ts` with tests (case 5).
 4. `core/layout.ts` with tests (cases 2, 9).
