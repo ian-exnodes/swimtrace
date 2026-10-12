@@ -53,6 +53,10 @@ const END_STATUS: Record<'answer' | 'aborted' | 'refusal' | 'error', Status> = {
   answer: 'completed', aborted: 'interrupted', refusal: 'failed', error: 'failed',
 }
 
+// A workflow agent the tick marked unknown for silence alone: its own toolCall or runEnd still lands.
+// Unknown for any other reason (the session ended) is final.
+const staleUnknown = (a: Agent): boolean => a.status === 'unknown' && a.endReason === 'stale'
+
 // Returns `s` itself when `fn` changed nothing: the collector relies on that to skip idle writes.
 function mapAgent(s: Snapshot, id: string, fn: (a: Agent) => Agent): Snapshot {
   let changed = false
@@ -78,11 +82,16 @@ function apply(s: Snapshot, ev: Event): Snapshot {
     }
     case 'toolCall':
       if (!known(ev.agentId)) return s
-      return mapAgent(s, ev.agentId, a => (isLive(a.status) ? { ...a, currentTool: ev.tool, lastSeenAt: ev.at } : a))
+      return mapAgent(s, ev.agentId, a => {
+        if (isLive(a.status)) return { ...a, currentTool: ev.tool, lastSeenAt: ev.at }
+        if (!staleUnknown(a)) return a
+        const { endedAt: _e, endReason: _r, ...rest } = a // it was only silent: back to running
+        return { ...rest, status: 'running', currentTool: ev.tool, lastSeenAt: ev.at }
+      })
     case 'runEnd': {
       const status = END_STATUS[ev.reason]
       if (status === undefined || !known(ev.agentId) || ev.agentId === 'main') return s
-      return mapAgent(s, ev.agentId, a => (isLive(a.status)
+      return mapAgent(s, ev.agentId, a => (isLive(a.status) || staleUnknown(a)
         ? { ...a, status, endedAt: ev.at, endReason: ev.reason, currentTool: undefined, lastSeenAt: ev.at }
         : a))
     }

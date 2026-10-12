@@ -12,8 +12,12 @@ export const spawnEvent = (e: SpawnIn, agentId: string, at: number): Event => ({
 
 type ToolIn = { tool: string; agentId?: string } & Record<string, unknown>
 type ToolOut = { deny?: string; result?: unknown; isError?: boolean }
-export function toolEvents(e: ToolIn, ran: ToolOut, at: number): Event[] {
-  const out: Event[] = [{ kind: 'toolCall', at, agentId: e.agentId ?? 'main', tool: e.tool }]
+// Raised as the tool starts, so the agent's current tool is the one in progress.
+export const toolCallEvent = (e: ToolIn, at: number): Event => ({ kind: 'toolCall', at, agentId: e.agentId ?? 'main', tool: e.tool })
+
+// Raised once the tool settled: what its result adds (tasks, a workflow's name). Nothing for a refused or failed call.
+export function toolResultEvents(e: ToolIn, ran: ToolOut): Event[] {
+  const out: Event[] = []
   if (ran.deny !== undefined || ran.isError === true) return out
   const r = ran.result as Record<string, any> | undefined
   if (e.tool === 'TaskCreate' && typeof r?.task?.id === 'string') {

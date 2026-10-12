@@ -5,8 +5,9 @@ import { reduceAll } from '../../mod/core/reducer.ts'
 import { compileRules } from '../../mod/core/pools.ts'
 import { cellWidth, fmtDuration, isStale, lanes, layout, rowText, selectableIds, type LayoutOpts } from '../../mod/core/layout.ts'
 
+// Written at the default `now` (100 s), so the session is live, not stale, unless a test says otherwise.
 const snap = (evs: object[], simulated = false) =>
-  reduceAll(emptySnapshot({ id: 'sess-123456789', project: '/w/c4k-mobile', startedAt: 0 }, simulated), evs)
+  ({ ...reduceAll(emptySnapshot({ id: 'sess-123456789', project: '/w/c4k-mobile', startedAt: 0 }, simulated), evs), writtenAt: 100_000 })
 const spawn = (id: string, at: number, extra: object = {}) => ({ kind: 'spawn', at, id, type: 'Explore', description: id, ...extra })
 const opts = (o: Partial<LayoutOpts> = {}): LayoutOpts =>
   ({ width: 100, height: 40, now: 100_000, view: 'pool', runningOnly: false, expanded: false, rules: [], ...o })
@@ -144,4 +145,25 @@ test('control characters are stripped from every row', () => {
   const clean = text(layout(mk('evil line', 'a b'), opts()))
   assert.equal(dirty.length, clean.length)
   for (const l of dirty) assert.ok(!/[\n\x1b\t]/.test(l))
+})
+
+test('final fix 2: a stale session shows its running agents as unknown, frozen at the last write', () => {
+  const s = snap([{ kind: 'mainTurn', at: 5_000, phase: 'start' }, spawn('a1', 10_000), { kind: 'toolCall', at: 20_000, agentId: 'a1', tool: 'Grep' }])
+  s.writtenAt = 50_000
+  const before = JSON.stringify(s)
+  for (const view of ['pool', 'agent'] as const) {
+    const t = text(layout(s, opts({ now: 100_000, view, selectedId: 'a1', expanded: true })))
+    assert.match(t[0]!, /STALE/)
+    const row = t.find(l => / a1 /.test(l) || /\[a1 /.test(l))!
+    assert.match(row, view === 'agent' ? /\? a1 40s/ : /\[a1 \? 40s\]/)
+    assert.doesNotMatch(row, /●/)
+    assert.ok(!t.some(l => /\[main ●|● main/.test(l)), 'main is not shown running')
+    assert.ok(t.some(l => /\[main \?|\? main/.test(l)), 'main shows unknown')
+    assert.ok(t.some(l => /status unknown/.test(l)))
+    assert.match(t.at(-1)!, /Running 0 · Waiting 0 · .* · Unknown 1/)
+  }
+  assert.equal(JSON.stringify(s), before) // the snapshot is not mutated
+  assert.deepEqual(selectableIds(s, { view: 'pool', runningOnly: true, rules: [], now: 100_000 }), [])
+  assert.deepEqual(selectableIds(s, { view: 'pool', runningOnly: true, rules: [] }), ['main', 'a1']) // without now: as stored
+  assert.match(text(layout(s, opts({ now: 55_000 }))).find(l => /a1/.test(l))!, /a1 ● 45s/) // not stale yet: still running
 })

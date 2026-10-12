@@ -124,3 +124,21 @@ test('review fix 4: task fields from tool input are type-checked before they rea
   await $.tool.call({ tool: 'TaskUpdate', taskId: 't1', addBlockedBy: ['t0', 7, { x: 1 }] } as never)
   expect(getSnap().tasks).toEqual([{ id: 't1', subject: 'Real subject', status: 'pending', blockedBy: ['t0'] }])
 })
+
+test('final fix 1: while a tool runs, the calling agent already shows it as its current tool', async ($, on) => {
+  let duringCall: string | undefined
+  const { getSnap } = await boot($, on, () => {
+    on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
+    on('tool.call', { tool: /^Grep$/ }, async () => {
+      // The engine's tool is running here: give the plugin's start-of-call bookkeeping a few turns to land.
+      const tool = () => getSnap()?.agents.find((x: any) => x.id === 'a1')?.currentTool
+      for (let i = 0; i < 1_000 && tool() !== 'Grep'; i++) await Promise.resolve()
+      duringCall = tool()
+      return { result: { matches: 2 } }
+    })
+  })
+  await $.agent.spawn({ ...SPAWN, prompt: 'p', description: 'look', subagentType: 'Explore' })
+  const ran = await $.tool.call({ tool: 'Grep', pattern: 'x', agentId: 'a1' } as never)
+  expect(duringCall).toBe('Grep')
+  expect((ran as any).result).toEqual({ matches: 2 })
+})

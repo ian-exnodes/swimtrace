@@ -5,7 +5,7 @@ import { reduceAll, type Event } from '../core/reducer.ts'
 import { compileRules, DEFAULT_CONFIG, parseConfig } from '../core/pools.ts'
 import { cellWidth, layout, selectableIds, type Row } from '../core/layout.ts'
 import type { SwimtraceUi } from '../types'
-import { listEvents, spawnEvent, toolEvents, turnEndEvent } from './events.ts'
+import { listEvents, spawnEvent, toolCallEvent, toolResultEvents, turnEndEvent } from './events.ts'
 
 // The $.state contract (../types/index.d.ts) holds copies of the core's types; test/contract-sync.ts keeps them identical.
 
@@ -44,7 +44,8 @@ async function apply($: EngineInterface, evs: Event[]): Promise<void> {
   })
 }
 
-// Fail open: bookkeeping never throws into the engine. Hooks await it (in-memory only, after next(e) settled);
+// Fail open: bookkeeping never throws into the engine. Hooks await it (in-memory only; after next(e) settled, but
+// for tool.call's start, which runs beside next(e) and is awaited once next(e) settled);
 // disk I/O stays on the 250 ms timer, so no hook waits on the file system (session.end's last write aside).
 const safe = async (fn: () => Promise<void>): Promise<void> => {
   try { await fn() } catch { /* observational: ignore */ }
@@ -150,8 +151,12 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    // The tool's name is recorded as it starts (not awaited before next, so the call is never held up);
+    // what its result adds is recorded once it settled, after the name.
+    const pre = safe(async () => apply($, [toolCallEvent(e as never, await $.clock.now())]))
     const ran = await next(e)
-    await safe(async () => apply($, toolEvents(e as never, ran as never, await $.clock.now())))
+    await pre
+    await safe(async () => apply($, toolResultEvents(e as never, ran as never)))
     return ran
   })
 
@@ -221,7 +226,7 @@ export const register: Register = on => {
       const cur = await viewed($, at.pick)
       if (cur === undefined) return
       const { rules: live } = compileRules((await read($, config)).rules)
-      const ids = await idsOf($, cur, { view: at.view, runningOnly: at.runningOnly, rules: live })
+      const ids = await idsOf($, cur, { view: at.view, runningOnly: at.runningOnly, rules: live, now: await $.clock.now() })
       await update($, ui, x => {
         if (x.view !== at.view || x.runningOnly !== at.runningOnly || x.pick !== at.pick) return x // the list changed since the press
         const i = ids.indexOf(x.selectedId ?? '')

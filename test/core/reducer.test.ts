@@ -178,3 +178,31 @@ test('more than MAX_FINISHED finished agents fold the oldest into counters', () 
   assert.ok(s.agents.some(a => a.id === 'live'))
   assert.ok(!s.agents.some(a => a.id === 'a0'))
 })
+
+test('final fix 3: a stale-unknown workflow agent revives on its own tool call', () => {
+  const stale = reduceAll(S(), [spawn('w', 0, { workflowRunId: 'wf_1' }), { kind: 'tick', at: 700_000, staleWorkflowMs: 600_000 }])
+  assert.equal(agent(stale, 'w')!.status, 'unknown')
+  const s = reduce(stale, { kind: 'toolCall', at: 710_000, agentId: 'w', tool: 'Read' })
+  const a = agent(s, 'w')!
+  assert.equal(a.status, 'running')
+  assert.equal(a.currentTool, 'Read')
+  assert.equal(a.lastSeenAt, 710_000)
+  assert.equal(a.endedAt, undefined)
+  assert.equal(a.endReason, undefined)
+})
+
+test('final fix 3: a stale-unknown workflow agent takes its real end from runEnd', () => {
+  const stale = reduceAll(S(), [spawn('w', 0, { workflowRunId: 'wf_1' }), { kind: 'tick', at: 700_000, staleWorkflowMs: 600_000 }])
+  const s = reduce(stale, { kind: 'runEnd', at: 720_000, agentId: 'w', reason: 'answer' })
+  const a = agent(s, 'w')!
+  assert.equal(a.status, 'completed')
+  assert.equal(a.endReason, 'answer')
+  assert.equal(a.endedAt, 720_000)
+})
+
+test('final fix 3: unknown after session end stays final', () => {
+  const ended = reduceAll(S(), [spawn('a', 1, { workflowRunId: 'wf_1' }), { kind: 'sessionEnd', at: 20, reason: 'other' }])
+  assert.equal(agent(ended, 'a')!.endReason, 'session-end')
+  assert.equal(reduce(ended, { kind: 'toolCall', at: 30, agentId: 'a', tool: 'Grep' }), ended)
+  assert.equal(reduce(ended, { kind: 'runEnd', at: 31, agentId: 'a', reason: 'answer' }), ended)
+})

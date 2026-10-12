@@ -1,5 +1,5 @@
 import type { Agent, Snapshot, Status } from './model.ts'
-import { STALE_SESSION_MS } from './model.ts'
+import { STALE_SESSION_MS, isLive } from './model.ts'
 import type { CompiledRule, Pool } from './pools.ts'
 import { resolvePool } from './pools.ts'
 
@@ -12,7 +12,8 @@ export interface LayoutOpts {
   selectedId?: string; expanded: boolean; zoomMs?: number; rules: readonly CompiledRule[]
 }
 export interface Lane { pool: Pool; agents: Agent[] }
-type LaneOpts = Pick<LayoutOpts, 'view' | 'runningOnly' | 'rules'>
+/** `now`, when given, lets a stale session's agents be listed as layout draws them (see `asDrawn`). */
+type LaneOpts = Pick<LayoutOpts, 'view' | 'runningOnly' | 'rules'> & { now?: number }
 
 export const COMPACT_BELOW = 60
 export const GLYPH: Record<Status, string> = {
@@ -34,7 +35,23 @@ export const isStale = (s: Snapshot, now: number): boolean =>
 
 export const rowText = (r: Row): string => r.map(g => g.text).join('')
 
-const visible = (s: Snapshot, o: LaneOpts) => (o.runningOnly ? s.agents.filter(a => a.status === 'running') : s.agents)
+/**
+ * The snapshot as drawn at `now`: in a stale session (the writer stopped without ending it) nothing is known to be
+ * running any more, so every live agent, main included, shows `unknown`, its duration ending at the last write.
+ * A copy; the snapshot itself is left as read.
+ */
+export function asDrawn(s: Snapshot, now: number): Snapshot {
+  if (!isStale(s, now) || !s.agents.some(a => isLive(a.status))) return s
+  return {
+    ...s,
+    agents: s.agents.map(a => (isLive(a.status) ? { ...a, status: 'unknown', endedAt: s.writtenAt, endReason: 'stale', currentTool: undefined } : a)),
+  }
+}
+
+const visible = (s: Snapshot, o: LaneOpts) => {
+  const v = o.now === undefined ? s : asDrawn(s, o.now)
+  return o.runningOnly ? v.agents.filter(a => a.status === 'running') : v.agents
+}
 
 export function lanes(s: Snapshot, o: LaneOpts): Lane[] {
   const byName = new Map<string, Lane>()
@@ -103,7 +120,8 @@ function cut(text: string, cells: number): string {
   return out
 }
 
-function clip(row: Row, width: number): Row {
+/** `row` with control characters blanked, cut to `width` terminal cells. */
+export function clip(row: Row, width: number): Row {
   const out: Row = []
   let left = width
   for (const g of row) {
@@ -162,7 +180,8 @@ function details(a: Agent, s: Snapshot, o: LayoutOpts): Row[] {
   ]
 }
 
-export function layout(s: Snapshot, o: LayoutOpts): Row[] {
+export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
+  const s = asDrawn(snapshot, o.now)
   const header: Row = [
     { text: 'SWIMTRACE', bold: true },
     { text: `  ${s.session.project.split('/').filter(Boolean).at(-1) ?? s.session.project}  session ${s.session.id.slice(0, 8)}` },
