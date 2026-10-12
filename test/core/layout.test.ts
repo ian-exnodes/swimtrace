@@ -295,3 +295,52 @@ test('final fix 2: a stale session shows its running agents as unknown, frozen a
   assert.deepEqual(selectableIds(s, { view: 'pool', runningOnly: true, rules: [] }), ['main', 'a1']) // without now: as stored
   assert.match(text(layout(s, opts({ now: 55_000 }))).find(l => /a1/.test(l))!, /\[● a1 · Grep 45s\]/) // not stale yet: still running
 })
+
+// Fix round 1
+test('fix 1: long labels and MCP tool names are capped in the node, at both widths; details keep the full label', () => {
+  const long = 'L'.repeat(30) + 'M'.repeat(30) // 60 cells
+  const s = snap([
+    { kind: 'mainTurn', at: 500, phase: 'start' }, { kind: 'toolCall', at: 600, agentId: 'main', tool: 'Bash' },
+    { kind: 'workflowName', runId: 'wf_1', name: 'review-wf' },
+    spawn('x', 1_000, { description: long, workflowRunId: 'wf_1' }),
+    { kind: 'toolCall', at: 2_000, agentId: 'x', tool: 'mcp__plugin_serena_serena__find_referencing_symbols' },
+  ])
+  const node = `[● ${'L'.repeat(27)}… · find_referenc… 1m39s]`
+  const wide = text(layout(s, opts()))
+  assert.equal(wide[2], `[● main · Bash]───▶[◆ review-wf]───▶${node}`) // fits 100 columns uncut
+  assert.ok(cellWidth(wide[2]!) <= 100 && !wide[2]!.endsWith('…]…'))
+  const narrow = text(layout(s, opts({ width: 59 }))).find(l => l.startsWith('    └▶ '))!
+  assert.equal(narrow, `    └▶ ${node}`.slice(0, 58) + '…') // capped in the tree too, then cut to the width
+  const d = text(layout(s, opts({ selectedId: 'x', expanded: true, width: 200 })))
+  assert.ok(d.some(l => l.startsWith(`id x  label ${long}  parent main`)))
+  // a short MCP name is only unprefixed; a plain tool name is untouched
+  const t = (tool: string) => text(layout(snap([spawn('y', 1), { kind: 'toolCall', at: 2, agentId: 'y', tool }]), opts()))[2]!
+  assert.match(t('mcp__github__get_issue'), /\[● y · get_issue 1m39s\]/)
+  assert.match(t('Grep'), /\[● y · Grep 1m39s\]/)
+})
+
+test('fix 2: below 8 rows the blank row under the header is dropped', () => {
+  const s = snap([spawn('a', 1)])
+  assert.equal(text(layout(s, opts({ height: 8 })))[1], '')
+  assert.deepEqual(text(layout(s, opts({ height: 7 }))).slice(1), ['[◌ main]───▶[● a 1m39s]'])
+  assert.deepEqual(text(layout(s, opts({ height: 7, view: 'pool' }))).slice(1, 2), ['MAIN · main'])
+})
+
+test('fix 3: emoji-presentation symbols take two cells; the layout\'s own glyphs take one', () => {
+  for (const e of ['✅', '⚡', '⭐', '❌', '☕', '✨', '❓', '⬛', '⌛']) assert.equal(cellWidth(e), 2, e)
+  for (const g of ['●', '◌', '✓', '✗', '■', '◆', '▶', '─', '│', '├', '└', '┬', '┄', '…', '·', '?']) assert.equal(cellWidth(g), 1, g)
+  const s = snap([spawn('p', 1, { description: '✅ p' }), spawn('a', 2, { parentId: 'p' }), spawn('b', 3, { parentId: 'p' })])
+  assert.deepEqual(text(layout(s, opts())).slice(2), [
+    '[◌ main]───▶[● ✅ p 1m39s]─┬─▶[● a 1m39s]',
+    `${' '.repeat(27)}└─▶[● b 1m39s]`, // node at 12, 14 cells wide (✅ is 2): the bar at 12 + 14 + 1
+  ])
+})
+
+test('fix 4: agents in a parentId cycle are still drawn, under main, and selectable', () => {
+  const s = snap([spawn('a', 1, { parentId: 'b' }), spawn('b', 2, { parentId: 'a' }), spawn('c', 3)])
+  assert.deepEqual(text(layout(s, opts())).slice(2), [
+    '[◌ main]─┬─▶[● c 1m39s]',
+    '         └─▶[● a 1m39s]───▶[● b 1m39s]',
+  ])
+  assert.deepEqual(selectableIds(s, { view: 'agent', runningOnly: false, rules: [] }), ['main', 'c', 'a', 'b'])
+})

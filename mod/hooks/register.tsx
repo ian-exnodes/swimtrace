@@ -127,7 +127,7 @@ export const register: Register = on => {
         dirty = true
       }
     })
-    await safe(async () => { await $.command.register({ name: 'swimtrace', description: 'Show or hide the SwimTrace swimlanes above the prompt' }) })
+    await safe(async () => { await $.command.register({ name: 'swimtrace', description: 'Show or hide the SwimTrace agent flow above the prompt' }) })
     // Timers outlive the dispatch. A reload drops them and fires session.start again in a fresh copy;
     // a second session.start in the same copy replaces them rather than doubling the writers.
     for (const t of timers) t.cancel()
@@ -208,7 +208,7 @@ export const register: Register = on => {
     return { text: shown ? head : notes.length > 0 ? `${head} (${notes.join('; ')}).` : `${head}.` }
   })
 
-  // The swimlanes draw in the band above the prompt, inside the session's own view; it passes when there is nothing to show.
+  // The flow draws in the band above the prompt, inside the session's own view; it passes when there is nothing to show.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     // Fail open: this hook draws the session's own input area, so any throw below hands the band back to the engine.

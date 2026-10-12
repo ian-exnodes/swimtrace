@@ -1,7 +1,7 @@
 {
   "name": "swimtrace",
   "version": "0.1.0",
-  "description": "Swimlane monitor for Claude Code multi-agent runs",
+  "description": "Live flow monitor for Claude Code multi-agent runs",
   "type": "module",
   "bin": { "swimtrace": "dist/cli/main.js" },
   "files": ["dist"],

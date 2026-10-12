@@ -1,5 +1,5 @@
 {
   "name": "swimtrace",
   "owner": { "name": "ian-exnodes" },
-  "plugins": [{ "name": "swimtrace", "source": "./mod", "description": "Live swimlanes of Claude Code subagents" }]
+  "plugins": [{ "name": "swimtrace", "source": "./mod", "description": "Live flow of Claude Code subagents" }]
 }

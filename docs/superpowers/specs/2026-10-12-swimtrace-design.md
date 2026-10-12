@@ -255,8 +255,8 @@ First match wins; the lane records its source:
 4. **type** — the agent type.
 5. **main** — the main loop always has its own lane.
 
-Lane headers show the source (`REVIEW · config`, `Explore · type`). The agent view ignores pools
-and shows one row per agent, indented under its parent.
+Lane headers show the source (`REVIEW · config`, `Explore · type`). Pools apply to the pools view only;
+the agent view is the flow (§7), which ignores pools.
 
 ## 7. Terminal UI: the flow view
 
@@ -280,7 +280,8 @@ SWIMTRACE  proj  session e57186f5   5 agents · 1 running · 3 done · 1 failed
   `N agents · R running · D done · F failed`, with `· W waiting`, `· S stopped` (interrupted + killed) and
   `· U unknown` only when non-zero. Subagents only, folded counters included.
 - Agent node: `[<glyph> <label>[ · <current tool>] <duration>]`, coloured by status, inverse when selected; the tool
-  only while running. Main is `[● main · Bash]` / `[◌ main]`, no duration. Status glyphs: ● running, ◌ waiting,
+  only while running. Main is `[● main · Bash]` / `[◌ main]`, no duration. Labels and workflow names are capped at
+  28 cells, tools at 14 (an `mcp__<server>__` prefix dropped), with `…`; details show the full label. Status glyphs: ● running, ◌ waiting,
   ✓ completed, ✗ failed, ■ interrupted/killed, ? unknown.
 - Solid edges: parent → child (`parentAgentId` when that agent is shown, else main), children in start order. The
   children of a node start 4 cells after it: `───▶` for one, `─┬─▶` / `├─▶` / `└─▶` with `│` between for several.
@@ -291,7 +292,8 @@ SWIMTRACE  proj  session e57186f5   5 agents · 1 running · 3 done · 1 failed
   started no later than it. Inferred from labels only (details say so: `after <label> (step order inferred from
   labels)`); data flow is never drawn. Anything else is a plain child of the workflow node.
 - Below 60 columns: an indented tree, one node per line (`├▶ ` / `└▶ `, a chained agent as its predecessor's `┄▶ `
-  child). Rows are clipped to the width with a trailing `…`; too many rows end in `… n more rows`.
+  child). Rows are clipped to the width with a trailing `…`; too many rows end in `… n more rows`. A blank row
+  separates header and body unless the height is under 8 rows.
 - Pools view: one lane per pool (§6), header `NAME · source`, then its agents one per line.
 - Selection walks the drawn order (row by row, left to right; workflow nodes skipped), the same in both widths.
 - Tasks strip only when Task tools were used; "pending" appears only there.

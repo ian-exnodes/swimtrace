@@ -1,6 +1,7 @@
 # SwimTrace
 
-Live swimlanes of Claude Code subagents — in the band above the prompt inside Claude Code and in a `swimtrace` terminal viewer.
+A live flow of Claude Code subagents (who started whom, what each is doing, how it ended) in the band above the
+prompt inside Claude Code and in a `swimtrace` terminal viewer.
 Strictly observational: it never changes, blocks or slows what Claude Code does, never edits `settings.json`,
 and never calls a model.
 

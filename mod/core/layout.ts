@@ -120,8 +120,11 @@ function flow(agents: Agent[]): Flow {
     return top
   }
   const main = agents.find(a => a.id === 'main')
+  const top = group(kids.get('main') ?? [])
+  // Agents no path from main reaches (a parentId cycle in a malformed file) still show, as main's children.
+  const stray = group(agents.filter(a => a.id !== 'main' && !seen.has(a)).sort((x, y) => x.startedAt - y.startedAt))
   // runningOnly may hide main; its children are then drawn as roots
-  return { roots: main ? [{ a: main, kids: group(kids.get('main') ?? []) }] : group(kids.get('main') ?? []), after }
+  return { roots: main ? [{ a: main, kids: [...top, ...stray] }] : [...top, ...stray], after }
 }
 
 /** Agents in drawn order: a node, then what is chained after it, then its children (row by row, left to right). */
@@ -139,6 +142,13 @@ const RANGES_ZERO: [number, number][] = [[0x300, 0x36f], [0x200b, 0x200f], [0xfe
 const RANGES_WIDE: [number, number][] = [
   [0x1100, 0x115f], [0x2e80, 0xa4cf], [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe30, 0xfe4f],
   [0xff00, 0xff60], [0xffe0, 0xffe6], [0x1f300, 0x1faff], [0x20000, 0x3fffd],
+  // Emoji-presentation symbols below U+1F300 (✅ ⚡ ❌ ⭐ …). Code points only, not blocks: ✓ ✗ ● ◆ and the box drawing stay 1.
+  [0x231a, 0x231b], [0x23e9, 0x23ec], [0x23f0, 0x23f0], [0x23f3, 0x23f3], [0x25fd, 0x25fe], [0x2614, 0x2615],
+  [0x2648, 0x2653], [0x267f, 0x267f], [0x2693, 0x2693], [0x26a1, 0x26a1], [0x26aa, 0x26ab], [0x26bd, 0x26be],
+  [0x26c4, 0x26c5], [0x26ce, 0x26ce], [0x26d4, 0x26d4], [0x26ea, 0x26ea], [0x26f2, 0x26f3], [0x26f5, 0x26f5],
+  [0x26fa, 0x26fa], [0x26fd, 0x26fd], [0x2705, 0x2705], [0x270a, 0x270b], [0x2728, 0x2728], [0x274c, 0x274c],
+  [0x274e, 0x274e], [0x2753, 0x2755], [0x2757, 0x2757], [0x2795, 0x2797], [0x27b0, 0x27b0], [0x27bf, 0x27bf],
+  [0x2b1b, 0x2b1c], [0x2b50, 0x2b50], [0x2b55, 0x2b55],
 ]
 const inRanges = (c: number, rs: [number, number][]) => rs.some(([a, b]) => c >= a && c <= b)
 const charWidth = (ch: string): number => {
@@ -186,12 +196,19 @@ function listLine(a: Agent, now: number, selected: boolean): Row {
   ]
 }
 
+// Node text stays short so a flow fits across: labels and workflow names to 28 cells, tools to 14 (details keep the label whole).
+const LABEL_CELLS = 28
+const TOOL_CELLS = 14
+const cap = (text: string, cells: number) => (cellWidth(text) <= cells ? text : `${cut(text, cells - 1)}…`)
+// `mcp__<server>__<tool>` → `<tool>`
+const toolName = (t: string) => t.replace(/^mcp__.*__(?=.)/, '')
+
 function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>): Seg {
-  if (n.a === undefined) return { text: `[◆ ${workflows[n.runId!] ?? n.runId}]`, bold: true }
+  if (n.a === undefined) return { text: `[◆ ${cap(workflows[n.runId!] ?? n.runId!, LABEL_CELLS)}]`, bold: true }
   const a = n.a
-  const tool = a.status === 'running' && a.currentTool ? ` · ${a.currentTool}` : ''
+  const tool = a.status === 'running' && a.currentTool ? ` · ${cap(toolName(a.currentTool), TOOL_CELLS)}` : ''
   const time = a.id === 'main' ? '' : ` ${dur(a, o.now)}`
-  return { text: `[${GLYPH[a.status]} ${label(a)}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined }
+  return { text: `[${GLYPH[a.status]} ${cap(label(a), LABEL_CELLS)}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined }
 }
 
 const EDGE = { dim: true } as const
@@ -262,7 +279,7 @@ function details(a: Agent, s: Snapshot, o: LayoutOpts, prev: Agent | undefined):
   const time = (t?: number) => (t === undefined ? '—' : new Date(t).toISOString().slice(11, 19))
   const tools = Array.isArray(a.tools) && a.tools.length > 0 ? a.tools.join(', ') : '—'
   return [
-    [{ text: `id ${a.id}  parent ${a.parentId ?? (a.id === 'main' ? '—' : 'main')}  type ${a.type}  pool ${pool.name} (${pool.source})`, dim: true }],
+    [{ text: `id ${a.id}  label ${label(a)}  parent ${a.parentId ?? (a.id === 'main' ? '—' : 'main')}  type ${a.type}  pool ${pool.name} (${pool.source})`, dim: true }],
     [{ text: `status ${a.status}  tool ${a.currentTool ?? '—'}  start ${time(a.startedAt)}  end ${time(a.endedAt)}  reason ${a.endReason ?? '—'}`, dim: true }],
     [{ text: `model ${a.model ?? '—'}  tools ${tools}`, dim: true }],
     ...(prev ? [[{ text: `after ${label(prev)} (step order inferred from labels)`, dim: true }]] : []),
@@ -292,7 +309,7 @@ export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
   if (s.session.endedAt !== undefined) header.push({ text: ' [ENDED]', fg: 'gray', bold: true })
   header.push({ text: summary(s), dim: true })
 
-  const body: Row[] = [[]] // a blank row under the header
+  const body: Row[] = o.height < 8 ? [] : [[]] // a blank row under the header, when there is room for it
   const graph = flow(visible(s, o)) // pools view too: details name an agent's inferred predecessor
   if (o.view === 'agent') {
     if (o.width < COMPACT_BELOW) body.push(...flowTree(graph.roots, o, s.workflows))

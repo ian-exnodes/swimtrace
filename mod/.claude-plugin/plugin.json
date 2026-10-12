@@ -1,6 +1,6 @@
 {
   "name": "swimtrace",
   "version": "0.1.0",
-  "description": "Live swimlanes of Claude Code subagents; observational only",
+  "description": "Live flow of Claude Code subagents; observational only",
   "types": "./types/index.d.ts"
 }
