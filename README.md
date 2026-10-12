@@ -7,17 +7,36 @@ and never calls a model.
 
 ## Install
 
-In a Claude Code terminal session:
+SwimTrace has two parts. The **plugin** draws the flow above the prompt inside Claude Code. The **`swimtrace` CLI**
+(optional) draws the same flow in another terminal. Needs Claude Code 2.1.296+ and Node 22.6+.
 
-```
-/plugin install swimtrace --marketplace ian-exnodes/swimtrace
-```
+1. The plugin, in a Claude Code terminal session:
 
-Answer `y` to add the marketplace and pick the user scope (every project). Then the viewer:
+   ```
+   /plugin install swimtrace --marketplace ian-exnodes/swimtrace
+   ```
 
-```
-npm i -g swimtrace        # or, from a clone: npm i -g .
-```
+   Answer `y` to add the marketplace and pick the user scope (every project). It is active right away.
+
+2. The viewer (optional), from your shell:
+
+   ```
+   git clone https://github.com/ian-exnodes/swimtrace.git
+   cd swimtrace && npm i && npm i -g .
+   ```
+
+   `npm i` builds the CLI. `npm i -g .` links that folder as the global `swimtrace` command, so keep the clone.
+   It is not on the npm registry yet, and `npm i -g github:ian-exnodes/swimtrace` fails (npm skips the build tools
+   when it prepares a git dependency globally).
+
+3. Try it without spending tokens:
+
+   ```
+   swimtrace sim orchestrated
+   ```
+
+   Then dispatch a few subagents in Claude Code (for example, "use two Explore agents to map this repo") and watch the
+   band fill in.
 
 ## Use
 
@@ -127,8 +146,8 @@ unset). The `swimtrace` viewer prunes snapshots older than 7 days when it starts
 
 ```
 /plugin uninstall swimtrace
+swimtrace clean           # run first: deletes ~/.claude/swimtrace
 npm rm -g swimtrace
-swimtrace clean           # run before uninstalling the CLI to delete ~/.claude/swimtrace
 ```
 
 `swimtrace clean` refuses to delete anything unless the target is an absolute path ending in `swimtrace` that holds

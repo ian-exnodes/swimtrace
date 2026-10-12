@@ -2,5 +2,8 @@
   "name": "swimtrace",
   "version": "0.1.0",
   "description": "Live flow of Claude Code subagents; observational only",
+  "author": {
+    "name": "ian-exnodes"
+  },
   "types": "./types/index.d.ts"
 }
