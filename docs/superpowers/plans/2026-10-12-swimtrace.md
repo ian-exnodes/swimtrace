@@ -2421,7 +2421,7 @@ Then, for spike S2 and multi-run agents:
 - [ ] **Step 3: Verify**
 
 - Pane and CLI both show `MAIN · main` running, then an `Explore · type` lane with two stacked `●` bars, then `✓` with durations.
-- For each planted word: `grep -l -e PELICANWORD -e OTTERWORD -e HERONWORD -e BADGERWORD ~/.claude/swimtrace/sessions/*.json` prints nothing, and `grep -c PELICANWORD <file>` (likewise each word) is `0` for every snapshot file; no file paths from the prompts appear in the snapshot.
+- For each planted word: `grep -l -e PELICANWORD -e OTTERWORD -e HERONWORD -e BADGERWORD ~/.claude/swimtrace/sessions/*.json` prints nothing, and `grep -c PELICANWORD <file>` (likewise each word) is `0` for every snapshot file; no file paths from the prompts appear in the snapshot. If a word does turn up, check whether it sits in an agent's `description` (main may copy it into the Agent call's label, which is shown by design) before calling it a prompt leak.
 - Press Esc during a run of a third agent → its bar shows `■` (interrupted).
 - `/clear` → CLI shows the old session `[ENDED]`; Tab reaches a new one after the next prompt.
 - Kill the Claude process with `kill -9` while a subagent is running → within ~15 s the CLI shows `[STALE]` AND that session's agents still marked running (main and any subagent) as `?`, not `●`, with durations no longer growing.

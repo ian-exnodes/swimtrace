@@ -152,3 +152,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+test('final fix 2: the pane never draws its own live session as stale, however long it runs', async ($, on) => {
+  const { clock } = await boot($, on, 'terminal')
+  await clock.advance(20_000) // past the 15 s staleness window
+  const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: /STALE/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /scan repo ● 20s/ })).toBeDefined()
+  await ui.press({ key: 'running' })
+  await ui.press({ key: 'details' })
+  await ui.press({ key: 'next' })
+  expect((await ui.find({ type: 'Text', text: /^id \S+ / }))?.text.split(' ')[1]).toBe('a1') // running-only list still has it
+  await ui.unmount()
+})

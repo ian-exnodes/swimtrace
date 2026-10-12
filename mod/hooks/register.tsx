@@ -68,17 +68,23 @@ async function loadSnapshot($: EngineInterface, path: string): Promise<Snapshot 
   return ok ? s : undefined
 }
 
+// This session's snapshot as of now. writtenAt is stamped only into the file, never into $.state, and this process is
+// the writer, so its own session is never stale: without the stamp it would be drawn stale 15 s after it started.
+async function ownNow($: EngineInterface): Promise<Snapshot | undefined> {
+  const own = await read($, snap)
+  return own === undefined ? undefined : { ...own, writtenAt: await $.clock.now() }
+}
+
 // The snapshot the pane's handlers act on: this session's, or the file `pick` names (this session's again if it is gone).
 async function viewed($: EngineInterface, pick: string | undefined): Promise<Snapshot | undefined> {
-  const own = await read($, snap)
-  return pick === undefined ? own : ((await loadSnapshot($, pick)) ?? own)
+  return (pick === undefined ? undefined : await loadSnapshot($, pick)) ?? (await ownNow($))
 }
 
 // selectableIds over a snapshot from another session's file, which may hold malformed entries: this session's instead.
 async function idsOf($: EngineInterface, s: Snapshot, o: Parameters<typeof selectableIds>[1]): Promise<string[]> {
   try { return selectableIds(s, o) } catch {
-    const own = await read($, snap)
-    return own === undefined || own === s ? [] : selectableIds(own, o)
+    const own = await ownNow($)
+    return own === undefined || own.session.id === s.session.id ? [] : selectableIds(own, o)
   }
 }
 
@@ -197,7 +203,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const u = await read($, ui)
-    const own = await read($, snap)
+    const own = await ownNow($)
     const picked = u.pick === undefined ? undefined : await loadSnapshot($, u.pick)
     const { rules } = compileRules((await read($, config)).rules)
     const now = await $.clock.now()
