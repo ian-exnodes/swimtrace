@@ -26,12 +26,24 @@ const REQUIRED: Record<Event['kind'], Record<string, 'string' | 'number'>> = {
   tick: { at: 'number', staleWorkflowMs: 'number' },
 }
 
+// Allowed values for enum-like fields, checked after the type check. Optional fields may be absent.
+const ENUMS: Partial<Record<Event['kind'], Record<string, readonly string[]>>> = {
+  runEnd: { reason: ['answer', 'aborted', 'refusal', 'error'] },
+  mainTurn: { phase: ['start', 'end'] },
+  listStatus: { status: ['pending', 'running', 'waiting', 'idle', 'completed', 'failed', 'killed'] },
+  taskUpdate: { status: ['pending', 'in_progress', 'completed', 'deleted'] },
+}
+
 export function isEvent(x: unknown): x is Event {
   if (typeof x !== 'object' || x === null) return false
   const ev = x as Record<string, unknown>
-  const need = REQUIRED[ev.kind as Event['kind']]
-  if (need === undefined) return false
-  return Object.entries(need).every(([k, t]) => typeof ev[k] === t && (t !== 'number' || Number.isFinite(ev[k])))
+  if (typeof ev.kind !== 'string' || !Object.hasOwn(REQUIRED, ev.kind)) return false
+  const kind = ev.kind as Event['kind']
+  const typesOk = Object.entries(REQUIRED[kind]).every(([k, t]) => typeof ev[k] === t && (t !== 'number' || Number.isFinite(ev[k])))
+  if (!typesOk) return false
+  const enums = ENUMS[kind]
+  if (enums === undefined) return true
+  return Object.entries(enums).every(([k, allowed]) => ev[k] === undefined || allowed.includes(ev[k] as string))
 }
 
 const END_STATUS: Record<'answer' | 'aborted' | 'refusal' | 'error', Status> = {
@@ -63,7 +75,7 @@ function apply(s: Snapshot, ev: Event): Snapshot {
     }
     case 'toolCall':
       if (!known(ev.agentId)) return s
-      return mapAgent(s, ev.agentId, a => ({ ...a, currentTool: ev.tool, lastSeenAt: ev.at }))
+      return mapAgent(s, ev.agentId, a => (isLive(a.status) ? { ...a, currentTool: ev.tool, lastSeenAt: ev.at } : a))
     case 'runEnd': {
       const status = END_STATUS[ev.reason]
       if (status === undefined || !known(ev.agentId) || ev.agentId === 'main') return s

@@ -115,3 +115,21 @@ test('reduce does not mutate its input', () => {
   reduce(s0, spawn('a', 1))
   assert.equal(JSON.stringify(s0), before)
 })
+
+test('a finished agent ignores late tool calls (identity preserved, no current tool)', () => {
+  const ended = reduceAll(S(), [spawn('a', 1), { kind: 'runEnd', at: 2, agentId: 'a', reason: 'answer' }])
+  const after = reduce(ended, { kind: 'toolCall', at: 3, agentId: 'a', tool: 'Grep' })
+  assert.equal(after, ended)
+  assert.equal(agent(after, 'a')!.currentTool, undefined)
+})
+
+test('isEvent rejects unknown kinds and out-of-range enum values', () => {
+  const s = S()
+  const bad: unknown[] = [
+    { kind: 'constructor' },
+    { kind: 'runEnd', at: 1, agentId: 'a', reason: 'constructor' },
+    { kind: 'mainTurn', at: 1, phase: 'middle' },
+    { kind: 'listStatus', at: 1, agentId: 'x', status: 'bogus', type: 'T', description: 'd' },
+  ]
+  for (const ev of bad) assert.equal(reduce(s, ev), s)
+})
