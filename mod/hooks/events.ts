@@ -4,9 +4,22 @@ import type { ListStatus } from '../core/model.ts'
 // Pure mapping from engine event shapes to core events. Privacy: only tool NAMES, a task's subject and a
 // workflow's name leave this file; never a prompt, a tool's input or output, or an answer.
 
-type SpawnIn = { description: string; subagentType: string; parentAgentId?: string; name?: string; workflow?: { runId: string } }
+type SpawnIn = {
+  description: string; prompt: string; subagentType: string; parentAgentId?: string; name?: string
+  workflow?: { runId: string; agentIndex: number }
+}
+// An unlabelled workflow agent() is spawned with its prompt (or a prefix of it) as the description. The prompt is
+// read here only to recognise that; it is never stored.
+const derivedFromPrompt = (description: string, prompt: string): boolean => {
+  const d = description.trim(), p = prompt.trim()
+  if (d === '') return false
+  if (d === p.split('\n', 1)[0]!.trim()) return true
+  const stem = d.replace(/(…|\.\.\.)$/, '').trimEnd()
+  return stem !== '' && p.startsWith(stem)
+}
 export const spawnEvent = (e: SpawnIn, agentId: string, at: number): Event => ({
-  kind: 'spawn', at, id: agentId, type: e.subagentType, description: e.description,
+  kind: 'spawn', at, id: agentId, type: e.subagentType,
+  description: derivedFromPrompt(e.description, e.prompt) ? (e.workflow ? `agent ${e.workflow.agentIndex}` : e.subagentType) : e.description,
   parentId: e.parentAgentId, name: e.name, workflowRunId: e.workflow?.runId || undefined,
 })
 

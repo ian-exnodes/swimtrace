@@ -86,7 +86,7 @@ Read-only clone; nothing installed or modified. The monitor does not depend on i
 | Session start / end | ✓ `session.start` / `session.end` | | | |
 | Session crashed / killed | | heartbeat staleness → `stale` | | cause |
 | Workflow run grouping | ✓ `workflow.runId` | | | |
-| Workflow `phase` / `label` per agent | | spike: does `description` carry `label`? | | otherwise not observable |
+| Workflow `phase` / `label` per agent | ✓ label (as the spawn description) | | | phase |
 | Explicit pool membership | | | `[pool:Name]` description prefix | |
 | Logical pool (rules) | | ✓ config rules on type/description/name/project | | |
 | Task list and dependencies | ✓ when `TaskCreate`/`TaskUpdate` are used | | | |
@@ -363,7 +363,7 @@ unchanged. One real validation run (two parallel Explore agents), run only with 
   refusal. No fallback needed.
 - **S2** — whether a workflow agent's `description` in `agent.spawn` carries the script's `label`.
   If yes, a built-in rule can expose it; if no, matrix row stays "not observable".
-  Result: pending — deferred to the real validation run (plan Task 12).
+  Result (2026-10-12): an agent() label becomes the spawn description; an unlabelled agent()'s description is its prompt — the collector replaces prompt-derived descriptions with "agent <index>" (or the agent type).
 
 ## 14. Implementation outline (detailed plan follows via writing-plans)
 

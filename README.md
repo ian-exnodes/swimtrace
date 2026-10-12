@@ -42,7 +42,8 @@ First match wins, and every lane header says where it came from:
 {
   "rules": [
     { "match": { "type": "^(reviewer|code-reviewer)$" }, "pool": "Review" },
-    { "match": { "description": "^\\[T\\d+\\] (\\S+)" }, "pool": "$1" }
+    { "match": { "description": "^\\[T\\d+\\] (\\S+)" }, "pool": "$1" },
+    { "match": { "description": "^(\\w+):" }, "pool": "$1" }
   ],
   "staleWorkflowAgentMinutes": 10
 }
@@ -50,7 +51,8 @@ First match wins, and every lane header says where it came from:
 
 `match` keys: `type`, `name`, `description`, `project` (regexes; all must match). `$1`… use the capture groups of
 the first key (in that order) that has groups. Lanes are resolved when drawn, from the config at that moment,
-so editing the config re-sorts existing agents.
+so editing the config re-sorts existing agents. A workflow `agent()` label becomes its description, so labels
+shaped `<step>:<key>` can be pooled by the last rule above; unlabelled workflow agents show as `agent <n>`.
 
 ## What it can and cannot see
 
@@ -67,7 +69,6 @@ shown: progress percentages, prompts, other tool inputs, tool outputs, answers. 
 `staleWorkflowAgentMinutes` shows `?` (unknown), never "done", and comes back if it calls a tool or finishes.
 A session whose heartbeat stops (Claude Code crashed or was killed) shows `STALE`, and its agents show `?`
 from then on, their durations ending at the last heartbeat.
-Workflow agents' own descriptions are not assumed to carry any label.
 
 ## Data and uninstall
 
