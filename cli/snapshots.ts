@@ -18,7 +18,7 @@ export function readSnapshot(path: string, lastGood?: Snapshot): { snap?: Snapsh
   if (typeof s.v !== 'number') return malformed
   if (s.v !== 1) return { snap: undefined, error: `${path}: unknown snapshot version ${s.v}` }
   if (typeof s.session?.id !== 'string' || !Array.isArray(s.agents) || typeof s.writtenAt !== 'number') return malformed
-  return { snap: s as Snapshot }
+  return { snap: Array.isArray(s.turns) ? (s as Snapshot) : { ...(s as Snapshot), turns: [] } } // older files have no turns
 }
 
 export interface SessionEntry { path: string; snap: Snapshot; stale: boolean; mtimeMs: number }

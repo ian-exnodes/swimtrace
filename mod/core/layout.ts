@@ -1,4 +1,4 @@
-import type { Agent, Snapshot, Status } from './model.ts'
+import type { Agent, Snapshot, Status, Turn } from './model.ts'
 import { STALE_SESSION_MS, isLive } from './model.ts'
 import type { CompiledRule, Pool } from './pools.ts'
 import { resolvePool } from './pools.ts'
@@ -71,8 +71,9 @@ export function lanes(s: Snapshot, o: LaneOpts): Lane[] {
  * A flow node: an agent, or a synthetic workflow node (`runId`) standing for the agents of one run that share a parent.
  * `chain` is the agent drawn after it on the same row: step order inferred from workflow labels, never observed.
  */
-interface FNode { a?: Agent; runId?: string; kids: FNode[]; chain?: FNode }
-interface Flow { roots: FNode[]; after: Map<string, Agent> }
+interface FNode { a?: Agent; runId?: string; kids: FNode[]; chain?: FNode; edge?: string }
+/** `top` are main's children (the dispatches), whether or not main itself is visible. */
+interface Flow { main?: Agent; top: FNode[]; after: Map<string, Agent> }
 
 const STEP = /^([\w-]+):(.+)$/
 
@@ -119,23 +120,72 @@ function flow(agents: Agent[]): Flow {
     })
     return top
   }
-  const main = agents.find(a => a.id === 'main')
   const top = group(kids.get('main') ?? [])
   // Agents no path from main reaches (a parentId cycle in a malformed file) still show, as main's children.
   const stray = group(agents.filter(a => a.id !== 'main' && !seen.has(a)).sort((x, y) => x.startedAt - y.startedAt))
-  // runningOnly may hide main; its children are then drawn as roots
-  return { roots: main ? [{ a: main, kids: [...top, ...stray] }] : [...top, ...stray], after }
+  return { main: agents.find(a => a.id === 'main'), top: [...top, ...stray], after }
 }
 
-/** Agents in drawn order: a node, then what is chained after it, then its children (row by row, left to right). */
-const flowOrder = (n: FNode): string[] => [...(n.a ? [n.a.id] : []), ...(n.chain ? flowOrder(n.chain) : []), ...n.kids.flatMap(flowOrder)]
+/** A node's agents in drawn order: the node, then what is chained after it, then its children (row by row, left to right). */
+const agentsOf = (n: FNode): Agent[] => [...(n.a ? [n.a] : []), ...(n.chain ? agentsOf(n.chain) : []), ...n.kids.flatMap(agentsOf)]
+const firstStart = (n: FNode): number => n.a?.startedAt ?? Math.min(...n.kids.map(firstStart))
+
+/** A drawn turn: one of main's turns (or the dispatches seen before any recorded turn) and what it dispatched; `end` bounds it. */
+interface DrawnTurn { n: number; startedAt: number; end?: number; over: boolean; nodes: FNode[]; plan: string }
+/** The flow view's stages: the latest turn with a dispatch drawn in full, the earlier ones as one line each. */
+interface Stages { graph: Flow; mainShown: boolean; latest?: DrawnTurn; earlier: DrawnTurn[]; over: boolean }
+
+const CLASS = /\[class:([\w-]+)\]/
+const BRANCH_CELLS = 16
+
+/**
+ * Each dispatch (a child of main, ◆ nodes included) belongs to the turn with the latest start no later than its own.
+ * Classify is the planning phase, turn start to first dispatch, plus a `[class:<word>]` tag when a dispatch carries one:
+ * timing and the tag only, nothing inferred. Computed from every dispatch, so runningOnly does not change it.
+ */
+function stages(s: Snapshot, vis: Agent[]): Stages {
+  const graph = flow(vis)
+  const ts: Turn[] = (Array.isArray(s.turns) ? s.turns : []).filter(t => Number.isFinite(t?.startedAt)).sort((x, y) => x.startedAt - y.startedAt)
+  const turnAt = (t: number) => ts.findLastIndex(x => x.startedAt <= t)
+  const ids = new Set(s.agents.map(a => a.id))
+  const sent = s.agents.filter(a => a.id !== 'main' && (a.parentId === undefined || a.parentId === 'main' || a.parentId === a.id || !ids.has(a.parentId)))
+    .sort((x, y) => x.startedAt - y.startedAt)
+  const byTurn = new Map<number, FNode[]>()
+  for (const n of graph.top) {
+    const i = turnAt(firstStart(n))
+    byTurn.set(i, [...(byTurn.get(i) ?? []), n])
+    n.edge = n.a?.type ?? 'workflow' // the route's branch: the agent type chosen (why it was chosen is not observable)
+  }
+  const synthetic = Math.min(...sent.filter(a => turnAt(a.startedAt) < 0).map(a => a.startedAt), ...(byTurn.get(-1) ?? []).map(firstStart))
+  const drawn = [...byTurn.keys()].sort((x, y) => x - y).map((i, k): DrawnTurn => {
+    const nodes = byTurn.get(i)!
+    const startedAt = i < 0 ? synthetic : ts[i]!.startedAt
+    const mine = sent.filter(a => turnAt(a.startedAt) === i)
+    const first = Math.min(...mine.map(a => a.startedAt), ...nodes.map(firstStart))
+    const tag = mine.map(a => CLASS.exec(a.description)?.[1]).find(x => x !== undefined)
+    const time = i < 0 ? '' : ` ${fmtDuration(first - startedAt)}` // before any recorded turn its start is unknown
+    // A turn whose end was missed is over by the next one's start at the latest.
+    const end = i < 0 ? ts[0]?.startedAt : ts[i]!.endedAt ?? ts[i + 1]?.startedAt
+    return { n: k + 1, startedAt, end, over: end !== undefined, nodes, plan: `${tag === undefined ? 'plan' : `classify: ${tag}`}${time}` }
+  })
+  const latest = drawn.at(-1)
+  const mainShown = graph.main !== undefined
+  return { graph, mainShown, latest, earlier: drawn.slice(0, -1).reverse(), over: latest?.over ?? ts.at(-1)?.endedAt !== undefined }
+}
 
 export function selectableIds(s: Snapshot, o: LaneOpts): string[] {
-  if (o.view === 'agent') return flow(visible(s, o)).roots.flatMap(flowOrder)
-  return lanes(s, o).flatMap(l => l.agents.map(a => a.id))
+  if (o.view !== 'agent') return lanes(s, o).flatMap(l => l.agents.map(a => a.id))
+  const st = stages(s, visible(s, o))
+  return [...(st.mainShown ? ['main'] : []), ...(st.latest?.nodes ?? []).flatMap(agentsOf).map(a => a.id)]
 }
 
-const label = (a: Agent) => a.name ?? (a.id === 'main' ? 'main' : a.type === a.description ? a.type : a.description || a.type)
+// A `[class:<word>]` tag (and one space after it) is instrumentation, never part of the label.
+const CLASS_TAGS = /\[class:[\w-]+\] ?/g
+const untag = (t: string) => {
+  const u = t.replace(CLASS_TAGS, '')
+  return u === t ? t : u.trim()
+}
+const label = (a: Agent) => untag(a.name ?? (a.id === 'main' ? 'main' : a.type === a.description ? a.type : a.description || a.type)) || a.type
 const dur = (a: Agent, now: number) => fmtDuration((a.endedAt ?? now) - a.startedAt)
 
 const RANGES_ZERO: [number, number][] = [[0x300, 0x36f], [0x200b, 0x200f], [0xfe00, 0xfe0f], [0x20d0, 0x20ff]]
@@ -213,8 +263,11 @@ function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>): Se
 
 const EDGE = { dim: true } as const
 
-/** The flow left to right: children start 4 cells after their parent, a chained agent on the parent's own row. */
-function flowRows(roots: FNode[], o: LayoutOpts, workflows: Record<string, string>): Row[] {
+/**
+ * The flow left to right: the stage nodes joined by `─▶`, then the route's branches; children start 4 cells after their
+ * parent, a chained agent on the parent's own row.
+ */
+function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>): Row[] {
   const grid: { col: number; seg: Seg }[][] = []
   const put = (row: number, col: number, seg: Seg) => (grid[row] ??= []).push({ col, seg })
   // Draws `n` at (row, col); returns the rows it took.
@@ -231,20 +284,30 @@ function flowRows(roots: FNode[], o: LayoutOpts, workflows: Record<string, strin
     return fan(n.kids, row + used, col + 1, false) - row
   }
   // Siblings hang off the bar at column x; the first shares its parent's row when `sameRow`. Returns the next free row.
+  // Labelled siblings (the route's branches) carry `─ <label> ──▶`, labels padded so the arrows line up.
   const fan = (kids: FNode[], first: number, x: number, sameRow: boolean): number => {
+    const labels = kids.map(k => (k.edge === undefined ? undefined : cap(k.edge, BRANCH_CELLS)))
+    const lw = Math.max(0, ...labels.map(l => cellWidth(l ?? '')))
     let r = first
     kids.forEach((k, i) => {
       const last = i === kids.length - 1
-      if (sameRow && i === 0) put(r, x - 1, { text: last ? '───▶' : '─┬─▶', ...EDGE })
-      else put(r, x, { text: last ? '└─▶' : '├─▶', ...EDGE })
-      const h = draw(k, r, x + 3)
+      const l = labels[i]
+      const tail = l === undefined ? '─▶' : `─ ${l} ${'─'.repeat(lw - cellWidth(l) + 2)}▶`
+      if (sameRow && i === 0) put(r, x - 1, { text: (last ? '──' : '─┬') + tail, ...EDGE })
+      else put(r, x, { text: (last ? '└' : '├') + tail, ...EDGE })
+      const h = draw(k, r, x + 1 + cellWidth(tail))
       if (!last) for (let j = r + 1; j < r + h; j++) put(j, x, { text: '│', ...EDGE })
       r += h
     })
     return r
   }
-  let row = 0
-  for (const n of roots) row += draw(n, row, 0)
+  let col = 0
+  lead.forEach((seg, i) => {
+    if (i > 0) { put(0, col, { text: '─▶', ...EDGE }); col += 2 }
+    put(0, col, seg)
+    col += cellWidth(seg.text)
+  })
+  if (branches.length > 0) fan(branches, 0, col + 1, true)
   return grid.map(cells => {
     const out: Row = []
     let at = 0
@@ -257,16 +320,49 @@ function flowRows(roots: FNode[], o: LayoutOpts, workflows: Record<string, strin
   })
 }
 
-/** The flow below COMPACT_BELOW columns: one node per line, indented; a chained agent is its predecessor's `┄▶` child. */
-function flowTree(roots: FNode[], o: LayoutOpts, workflows: Record<string, string>): Row[] {
-  const out: Row[] = []
+/**
+ * The flow below COMPACT_BELOW columns: one node per line, indented, each stage the only child of the one before;
+ * a branch shows its label before the agent; a chained agent is its predecessor's `┄▶` child.
+ */
+function flowTree(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>): Row[] {
+  const out: Row[] = lead.map((seg, i) => [{ text: i === 0 ? '' : `${'  '.repeat(i)}└▶ `, ...EDGE }, seg])
   const walk = (n: FNode, depth: number, conn: string) => {
-    out.push([{ text: '  '.repeat(depth) + conn, ...EDGE }, nodeSeg(n, o, workflows)])
+    const branch = n.edge === undefined ? '' : `${cap(n.edge, BRANCH_CELLS)} ▶ `
+    out.push([{ text: '  '.repeat(depth) + conn + branch, ...EDGE }, nodeSeg(n, o, workflows)])
     const subs = [...(n.chain ? [{ k: n.chain, dashed: true }] : []), ...n.kids.map(k => ({ k, dashed: false }))]
     subs.forEach(({ k, dashed }, i) => walk(k, depth + 1, dashed ? '┄▶ ' : i === subs.length - 1 ? '└▶ ' : '├▶ '))
   }
-  for (const n of roots) walk(n, 0, '')
+  branches.forEach((k, i) => walk(k, lead.length, i === branches.length - 1 ? '└▶ ' : '├▶ '))
   return out
+}
+
+/**
+ * The stage nodes before the branches: request (main: running with its tool, else ✓ once the turn is over, ? when stale,
+ * ◉ otherwise), then classify and route when a turn with a dispatch is drawn. None when main is hidden and nothing is.
+ */
+function stageSegs(st: Stages, o: LayoutOpts): Seg[] {
+  const m = st.graph.main
+  if (st.latest === undefined && !st.mainShown) return []
+  const main = m?.status
+  const tool = main === 'running' && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
+  const done = main !== 'running' && main !== 'unknown' && (st.over || main === 'completed')
+  const glyph = main === 'running' ? GLYPH.running : main === 'unknown' ? GLYPH.unknown : done ? GLYPH.completed : '◉'
+  const req: Seg = {
+    text: `[${glyph} request${tool}]`, fg: done ? COLOR.completed : main && COLOR[main],
+    inverse: (st.mainShown && o.selectedId === 'main') || undefined,
+  }
+  if (st.latest === undefined) return [req]
+  return [req, { text: `[${GLYPH.completed} ${cap(st.latest.plan, LABEL_CELLS)}]`, fg: COLOR.completed }, { text: '[⑂ route]', bold: true }]
+}
+
+/** `◉ request #<n> · <k> agents <summary> <duration>`: an earlier turn, its agents counted, not drawn. */
+function turnLine(t: DrawnTurn, now: number): Row {
+  const ags = t.nodes.flatMap(agentsOf)
+  const n = (...st: Status[]) => ags.filter(a => st.includes(a.status)).length
+  const parts: [number, string][] = [[n('failed'), '✗ # failed'], [n('running'), '● # running'], [n('waiting'), '◌ # waiting'],
+    [n('interrupted', 'killed'), '■ # stopped'], [n('unknown'), '? # unknown']]
+  const sum = n('completed') === ags.length ? '✓' : parts.filter(([c]) => c > 0).map(([c, w]) => w.replace('#', String(c))).join(' ')
+  return [{ text: `◉ request #${t.n} · ${ags.length} agent${ags.length === 1 ? '' : 's'} ${sum} ${fmtDuration((t.end ?? now) - t.startedAt)}`, ...EDGE }]
 }
 
 /** clip, with a trailing … when the row was cut. */
@@ -286,16 +382,22 @@ function details(a: Agent, s: Snapshot, o: LayoutOpts, prev: Agent | undefined):
   ]
 }
 
-/** `   N agents · R running · D done · F failed`, then waiting, stopped and unknown when any: subagents only, folded included. */
-function summary(s: Snapshot): string {
+/** Subagents only, folded included: the header's `N agents` and Progress's `R running · D done · F failed` (+ waiting, stopped, unknown when any). */
+function counts(s: Snapshot): { total: string; parts: string[] } {
   const subs = s.agents.filter(a => a.id !== 'main')
   const n = (...st: Status[]) => subs.filter(a => st.includes(a.status)).length
   const f = s.folded
   const total = subs.length + f.completed + f.failed + f.interrupted + f.killed + f.unknown
-  const parts = [`${total} agent${total === 1 ? '' : 's'}`, `${n('running')} running`, `${n('completed') + f.completed} done`, `${n('failed') + f.failed} failed`]
+  const parts = [`${n('running')} running`, `${n('completed') + f.completed} done`, `${n('failed') + f.failed} failed`]
   const extra: [number, string][] = [[n('waiting'), 'waiting'], [n('interrupted', 'killed') + f.interrupted + f.killed, 'stopped'], [n('unknown') + f.unknown, 'unknown']]
   for (const [c, word] of extra) if (c > 0) parts.push(`${c} ${word}`)
-  return `   ${parts.join(' · ')}`
+  return { total: `${total} agent${total === 1 ? '' : 's'}`, parts }
+}
+
+/** `Progress  tasks D/T done · R running · D done · F failed`; the tasks part only when there are tasks. */
+function progress(s: Snapshot): Row {
+  const tasks = s.tasks.length === 0 ? '' : `tasks ${s.tasks.filter(t => t.status === 'completed').length}/${s.tasks.length} done · `
+  return [{ text: 'Progress', bold: true }, { text: `  ${tasks}${counts(s).parts.join(' · ')}`, dim: true }]
 }
 
 export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
@@ -307,13 +409,15 @@ export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
   if (s.simulated) header.push({ text: ' [SIMULATED]', fg: 'red', bold: true })
   if (isStale(s, o.now)) header.push({ text: ' [STALE]', fg: 'yellow', bold: true })
   if (s.session.endedAt !== undefined) header.push({ text: ' [ENDED]', fg: 'gray', bold: true })
-  header.push({ text: summary(s), dim: true })
+  header.push({ text: `   ${counts(s).total}`, dim: true })
 
   const body: Row[] = o.height < 8 ? [] : [[]] // a blank row under the header, when there is room for it
-  const graph = flow(visible(s, o)) // pools view too: details name an agent's inferred predecessor
+  const st = stages(s, visible(s, o)) // pools view too: details name an agent's inferred predecessor
   if (o.view === 'agent') {
-    if (o.width < COMPACT_BELOW) body.push(...flowTree(graph.roots, o, s.workflows))
-    else body.push(...flowRows(graph.roots, o, s.workflows))
+    const lead = stageSegs(st, o)
+    const branches = st.latest?.nodes ?? []
+    body.push(...(o.width < COMPACT_BELOW ? flowTree : flowRows)(lead, branches, o, s.workflows))
+    body.push(...st.earlier.map(t => turnLine(t, o.now)))
   } else {
     for (const l of lanes(s, o)) {
       body.push([{ text: `${l.pool.name} · ${l.pool.source}`, bold: true }])
@@ -321,7 +425,8 @@ export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
     }
   }
   const sel = o.expanded ? s.agents.find(a => a.id === o.selectedId) : undefined
-  if (sel) body.push(...details(sel, s, o, graph.after.get(sel.id)))
+  if (sel) body.push(...details(sel, s, o, st.graph.after.get(sel.id)))
+  body.push(progress(s)) // both views: the header keeps only the agent count
   if (s.tasks.length > 0) {
     body.push([{ text: 'Tasks', bold: true }])
     for (const t of s.tasks) {

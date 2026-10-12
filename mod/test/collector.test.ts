@@ -144,3 +144,16 @@ test('final fix 1: while a tool runs, the calling agent already shows it as its 
   expect(duringCall).toBe('Grep')
   expect((ran as any).result).toEqual({ matches: 2 })
 })
+
+test('stages: main\'s turns are recorded as timestamps only', async ($, on) => {
+  const { clock, getSnap } = await boot($, on)
+  await $.turn.start({ text: 'SECRET PROMPT', turnId: 't1' })
+  await clock.advance(2_000)
+  await $.turn.complete({ answer: 'SECRET ANSWER', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  const s = getSnap()
+  expect(s.turns.length).toBe(2)
+  expect(s.turns[0].endedAt - s.turns[0].startedAt).toBe(2_000)
+  expect(s.turns[1].endedAt).toBeUndefined()
+  expect(JSON.stringify(s)).not.toContain('SECRET')
+})

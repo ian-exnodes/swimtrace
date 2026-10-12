@@ -21,22 +21,38 @@ npm i -g swimtrace        # or, from a clone: npm i -g .
 
 ## Use
 
-- The band in Claude Code and the `swimtrace` viewer both draw the agents as a flow, left to right, one line per node:
+- The band in Claude Code and the `swimtrace` viewer both draw the agents as a flow, left to right, one line per node,
+  through the stages of the main conversation's latest turn that dispatched agents:
 
   ```
-  SWIMTRACE  proj  session e57186f5   5 agents · 1 running · 3 done · 1 failed
+  SWIMTRACE  proj  session e57186f5   5 agents
 
-  [● main · Bash]─┬─▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
-                  │                └─▶[✗ review:perf 42s]
-                  ├─▶[✓ list files in src 13s]
-                  └─▶[✓ count test files 10s]
+  [✓ request]─▶[✓ classify: complex 8s]─▶[⑂ route]─┬─ Explore ───▶[✓ [T1] list files 13s]
+                                                   ├─ Explore ───▶[✓ [T2] count tests 10s]
+                                                   └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
+                                                                                └─▶[✗ review:perf 42s]
+  Progress  tasks 3/5 done · 1 running · 3 done · 1 failed
   ```
 
-  A node is `[status label · current tool duration]`. A solid arrow means who started whom. `◆` is a workflow run:
-  its agents hang off it. A dashed arrow (`─ ─▶`) is step order that SwimTrace infers from workflow labels shaped
+  - **request** is the main conversation's turn: `[● request · Bash]` while it runs (with its current tool),
+    `[✓ request]` once the turn is over. It stands for main: select it to see main's details.
+  - **plan / classify** is the planning phase, from the start of the turn to its first dispatch: `[✓ plan 8s]`. If an
+    Agent call's description carries a `[class:<word>]` tag (say `[T1] list files [class:complex]`), the node reads
+    `classify: <word>` instead. The tag is the only classification SwimTrace shows, and it is never part of a label.
+    Before any turn was seen (the mod was installed mid-session) the node has no time.
+  - **route** branches once per dispatched agent (or workflow run), in start order. The label on each branch is the
+    agent type chosen (`Explore`, `general-purpose`, `workflow`). Why that type was chosen cannot be seen.
+  - Earlier turns that dispatched agents are one dim line each, newest first, under the flow:
+    `◉ request #1 · 5 agents ✗ 1 failed 14s`. Their agents are not drawn or selectable.
+  - **Progress** counts every agent of the session: tasks done (when Task tools are used), then running, done,
+    failed (and waiting, stopped, unknown when any). The header keeps only the number of agents.
+
+  An agent node is `[status label · current tool duration]`. A solid arrow means who started whom. `◆` is a workflow
+  run: its agents hang off it. A dashed arrow (`─ ─▶`) is step order that SwimTrace infers from workflow labels shaped
   `<step>:<key>` (`verify:bugs` comes after `review:bugs`). It is a guess from the labels, not something Claude Code
   reports, and the details line says so. What one agent handed another (data flow) cannot be seen. Below 60 columns
-  the flow becomes an indented tree. `g` switches to the pools view (lanes, see below) and back.
+  the flow becomes an indented tree (request, then plan, then route, then `Explore ▶ [agent]`). `g` switches to the
+  pools view (lanes, see below) and back.
 - In Claude Code the flow appears above the prompt once a subagent runs; `/swimtrace` hides or shows it, and
   ctrl+x ctrl+a collapses it. Keys (button hotkeys, after a click on the band or ctrl+x tab): `g` flow/pools,
   `r` running only, `j`/`k` select, `d` details (model and tools used, too), `n` other sessions.
@@ -44,8 +60,9 @@ npm i -g swimtrace        # or, from a clone: npm i -g .
   `swimtrace --all` starts at the session list. Keys: ↑/↓, Enter, `g`, `r`, `l` list, Tab, `q`.
   `q` exists only in the CLI.
 - The band uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
-- `swimtrace sim fanout|failure|workflow|multi-session|crash [--speed N]` plays synthetic events (no tokens),
-  marked `SIMULATED`. `N` must be a number greater than 0.
+- `swimtrace sim fanout|failure|workflow|orchestrated|multi-session|crash [--speed N]` plays synthetic events (no
+  tokens), marked `SIMULATED`. `N` must be a number greater than 0. `orchestrated` walks through the stages: a tagged
+  dispatch, a workflow run with a failure, five tasks, then a second turn.
 
 ## Pools
 
@@ -85,6 +102,9 @@ Unlabelled workflow agents show as `agent <n>`.
 | current tool: the one in progress (name only); tools used (names, first 20) | tool-call events |
 | model | the agent's spawn result |
 | step order inside a workflow (dashed arrows) | inferred from `<step>:<key>` labels, never observed |
+| main's turns (start, end; never the prompt) | Claude Code's turn events |
+| plan / classify | timing (turn start to first dispatch), plus your optional `[class:<word>]` tag |
+| route branches | the agent type each dispatch used; the reason for the choice is not observable |
 | tasks: subject, status, blockers | only when the TaskCreate/TaskUpdate tools are used |
 
 Shown as text: each Agent call's short description and each task's subject (from TaskCreate/TaskUpdate). Never

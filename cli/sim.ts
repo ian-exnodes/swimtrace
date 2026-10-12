@@ -12,6 +12,8 @@ const end = (agentId: string, reason: 'answer' | 'error' | 'aborted' | 'refusal'
   (now: number): Event => ({ kind: 'runEnd', at: now, agentId, reason })
 const tool = (agentId: string, t: string) => (now: number): Event => ({ kind: 'toolCall', at: now, agentId, tool: t })
 const turn = (phase: 'start' | 'end') => (now: number): Event => ({ kind: 'mainTurn', at: now, phase })
+const task = (id: string, subject: string): Event => ({ kind: 'taskCreate', id, subject })
+const moved = (id: string, status: 'in_progress' | 'completed'): Event => ({ kind: 'taskUpdate', id, status })
 
 const fanout: Step[] = [
   { after: 0, ev: turn('start') },
@@ -22,6 +24,43 @@ const fanout: Step[] = [
   { after: 3000, ev: end('e2', 'answer') }, { after: 1500, ev: end('e1', 'answer') }, { after: 1000, ev: end('e3', 'answer') },
   { after: 800, ev: sp('rv', 'reviewer', '[pool:Review] review findings') },
   { after: 500, ev: tool('rv', 'Read') },
+]
+
+// The orchestration stages: a turn plans for ~1.5 s, dispatches two Explore agents (the first tagged [class:complex]) and a
+// workflow run (review:perf fails, verify:bugs follows review:bugs), moves five tasks along; then a short second turn.
+const WF = { workflowRunId: 'wf_orch' }
+const orchestrated: Step[] = [
+  { after: 0, ev: turn('start') },
+  { after: 300, ev: tool('main', 'TaskCreate') },
+  { after: 100, ev: task('1', 'List source files') }, { after: 50, ev: task('2', 'Count test files') },
+  { after: 50, ev: task('3', 'Review for bugs') }, { after: 50, ev: task('4', 'Review for performance') },
+  { after: 50, ev: task('5', 'Verify the findings') },
+  { after: 900, ev: tool('main', 'Agent') },
+  { after: 0, ev: sp('t1', 'Explore', '[T1] Explore — list files in src [class:complex]', { model: 'claude-haiku-4-5' }) },
+  { after: 200, ev: sp('t2', 'Explore', '[T2] Explore — count test files', { model: 'claude-haiku-4-5' }) },
+  { after: 100, ev: moved('1', 'in_progress') }, { after: 0, ev: moved('2', 'in_progress') },
+  { after: 400, ev: tool('t1', 'Glob') }, { after: 300, ev: tool('t2', 'Grep') },
+  { after: 500, ev: tool('main', 'Workflow') },
+  { after: 100, ev: { kind: 'workflowName', runId: 'wf_orch', name: 'review-changes' } },
+  { after: 200, ev: sp('r1', 'general-purpose', 'review:bugs', { ...WF, model: 'claude-sonnet-4-5' }) },
+  { after: 100, ev: sp('r2', 'general-purpose', 'review:perf', { ...WF, model: 'claude-sonnet-4-5' }) },
+  { after: 0, ev: moved('3', 'in_progress') }, { after: 0, ev: moved('4', 'in_progress') },
+  { after: 600, ev: tool('t1', 'Read') }, { after: 300, ev: tool('r1', 'Read') }, { after: 300, ev: tool('r2', 'Grep') },
+  { after: 1500, ev: end('t2', 'answer') }, { after: 0, ev: moved('2', 'completed') },
+  { after: 1000, ev: end('t1', 'answer') }, { after: 0, ev: moved('1', 'completed') },
+  { after: 1200, ev: tool('r1', 'Grep') },
+  { after: 1300, ev: end('r2', 'error') }, // the perf review fails; its task stays in progress
+  { after: 1200, ev: end('r1', 'answer') }, { after: 0, ev: moved('3', 'completed') },
+  { after: 300, ev: sp('v1', 'general-purpose', 'verify:bugs', { ...WF, model: 'claude-haiku-4-5' }) }, { after: 0, ev: moved('5', 'in_progress') },
+  { after: 500, ev: tool('v1', 'Grep') }, { after: 1200, ev: tool('v1', 'Bash') },
+  { after: 1200, ev: end('v1', 'answer') }, { after: 0, ev: moved('5', 'completed') },
+  { after: 400, ev: turn('end') },
+  { after: 1200, ev: turn('start') },
+  { after: 1000, ev: tool('main', 'Agent') },
+  { after: 0, ev: sp('t3', 'Explore', '[T6] Explore — summarize the review', { model: 'claude-haiku-4-5' }) },
+  { after: 500, ev: tool('t3', 'Read') },
+  { after: 1500, ev: end('t3', 'answer') },
+  { after: 300, ev: turn('end') },
 ]
 
 export const SCENARIOS: Record<string, Scenario> = {
@@ -54,6 +93,7 @@ export const SCENARIOS: Record<string, Scenario> = {
       { after: 0, ev: turn('start') }, { after: 700, ev: sp('p', 'Plan', 'plan refactor') }, { after: 4000, ev: end('p', 'answer') }, { after: 200, ev: turn('end') },
     ] },
   ] },
+  orchestrated: { sessions: [{ id: 'sim-orchestrated', project: '/sim/project-zeta', steps: orchestrated }] },
   crash: { stopWritingAfterMs: 3000, sessions: [{ id: 'sim-crash', project: '/sim/project-epsilon', steps: [
     { after: 0, ev: turn('start') }, { after: 500, ev: sp('c1', 'Explore', 'scan before crash') }, { after: 500, ev: tool('c1', 'Grep') },
   ] }] },
@@ -61,14 +101,19 @@ export const SCENARIOS: Record<string, Scenario> = {
 
 const resolve = (ev: Step['ev'], now: number): Event => (typeof ev === 'function' ? ev(now) : ev)
 
-export function playInstant(name: string, start: number): Snapshot[] {
+/** Each session's snapshot after its steps, or (`untilMs`) as it stands that far in. */
+export function playInstant(name: string, start: number, untilMs = Infinity): Snapshot[] {
   const sc = SCENARIOS[name]
   if (!sc) throw new Error(`unknown scenario ${name}`)
   return sc.sessions.map(({ id, project, steps }) => {
     let now = start
     let s = emptySnapshot({ id, project, startedAt: start }, true)
-    for (const st of steps) { now += st.after; s = reduce(s, resolve(st.ev, now)) }
-    return { ...s, writtenAt: now }
+    for (const st of steps) {
+      if (now + st.after - start > untilMs) break
+      now += st.after
+      s = reduce(s, resolve(st.ev, now))
+    }
+    return { ...s, writtenAt: untilMs === Infinity ? now : start + untilMs }
   })
 }
 

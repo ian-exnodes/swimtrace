@@ -25,6 +25,9 @@ export interface Task { id: string; subject: string; status: TaskStatus; blocked
 
 export interface Session { id: string; project: string; startedAt: number; endedAt?: number; endReason?: string }
 
+// A main turn: timestamps only, never the prompt.
+export interface Turn { startedAt: number; endedAt?: number }
+
 export interface Folded { completed: number; failed: number; interrupted: number; killed: number; unknown: number }
 
 export interface Snapshot {
@@ -36,10 +39,12 @@ export interface Snapshot {
   tasks: Task[]
   workflows: Record<string, string> // runId → workflow meta.name
   folded: Folded
+  turns: Turn[] // main's turns, oldest first, at most MAX_TURNS; files written before turns existed have none
 }
 
 export const MAX_FINISHED = 200
 export const MAX_TOOLS = 20
+export const MAX_TURNS = 20
 export const STALE_SESSION_MS = 15_000
 export const DEFAULT_STALE_WORKFLOW_MS = 600_000
 
@@ -52,6 +57,6 @@ export function emptySnapshot(session: Session, simulated = false): Snapshot {
   }
   return {
     v: 1, simulated, session, writtenAt: session.startedAt, agents: [main], tasks: [], workflows: {},
-    folded: { completed: 0, failed: 0, interrupted: 0, killed: 0, unknown: 0 },
+    folded: { completed: 0, failed: 0, interrupted: 0, killed: 0, unknown: 0 }, turns: [],
   }
 }

@@ -1,5 +1,5 @@
-import type { Agent, ListStatus, Snapshot, Status, TaskStatus } from './model.ts'
-import { MAX_FINISHED, MAX_TOOLS, isLive } from './model.ts'
+import type { Agent, ListStatus, Snapshot, Status, TaskStatus, Turn } from './model.ts'
+import { MAX_FINISHED, MAX_TOOLS, MAX_TURNS, isLive } from './model.ts'
 
 export type Event =
   | { kind: 'spawn'; at: number; id: string; type: string; description: string; parentId?: string; name?: string; workflowRunId?: string; model?: string }
@@ -106,12 +106,17 @@ function apply(s: Snapshot, ev: Event): Snapshot {
         ? { ...a, status, endedAt: ev.at, endReason: ev.reason, currentTool: undefined, lastSeenAt: ev.at }
         : a))
     }
-    case 'mainTurn':
-      return mapAgent(s, 'main', a => {
+    case 'mainTurn': {
+      const m = mapAgent(s, 'main', a => {
         const status: Status = ev.phase === 'start' ? 'running' : 'waiting'
         if (a.status === status && (ev.phase === 'start' || a.currentTool === undefined)) return a
         return { ...a, status, lastSeenAt: ev.at, currentTool: ev.phase === 'end' ? undefined : a.currentTool }
       })
+      // ponytail: a start while a turn is still open (its end missed) leaves that end unknown; layout bounds it
+      if (ev.phase === 'start') return { ...m, turns: [...turnsOf(s), { startedAt: ev.at }].slice(-MAX_TURNS) }
+      const turns = closeTurn(s, ev.at)
+      return turns === undefined ? m : { ...m, turns }
+    }
     case 'listStatus': {
       if (!known(ev.agentId)) {
         const live = ev.status === 'running' || ev.status === 'pending' || ev.status === 'waiting' || ev.status === 'idle'
@@ -152,6 +157,7 @@ function apply(s: Snapshot, ev: Event): Snapshot {
     case 'sessionEnd':
       return {
         ...s,
+        turns: closeTurn(s, ev.at) ?? turnsOf(s),
         session: { ...s.session, endedAt: ev.at, endReason: ev.reason },
         agents: s.agents.map(a => {
           if (!isLive(a.status)) return a
@@ -170,6 +176,15 @@ function apply(s: Snapshot, ev: Event): Snapshot {
     default:
       return s
   }
+}
+
+// A snapshot written before turns existed has none.
+const turnsOf = (s: Snapshot): Turn[] => (Array.isArray(s.turns) ? s.turns : [])
+// The turns with the open (last) one ended at `at`; undefined when none is open.
+function closeTurn(s: Snapshot, at: number): Turn[] | undefined {
+  const ts = turnsOf(s)
+  const last = ts.at(-1)
+  return last === undefined || last.endedAt !== undefined ? undefined : [...ts.slice(0, -1), { ...last, endedAt: at }]
 }
 
 const listEnd = (st: ListStatus): Status => (st === 'killed' ? 'killed' : st === 'failed' ? 'failed' : 'completed')

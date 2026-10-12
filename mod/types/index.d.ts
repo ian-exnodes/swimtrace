@@ -26,6 +26,8 @@ export interface SwimtraceTask { id: string; subject: string; status: SwimtraceT
 
 export interface SwimtraceSession { id: string; project: string; startedAt: number; endedAt?: number; endReason?: string }
 
+export interface SwimtraceTurn { startedAt: number; endedAt?: number }
+
 export interface SwimtraceFolded { completed: number; failed: number; interrupted: number; killed: number; unknown: number }
 
 export interface SwimtraceSnapshot {
@@ -37,6 +39,7 @@ export interface SwimtraceSnapshot {
   tasks: SwimtraceTask[]
   workflows: Record<string, string>
   folded: SwimtraceFolded
+  turns: SwimtraceTurn[]
 }
 
 export type SwimtraceMatchKey = 'type' | 'name' | 'description' | 'project'

@@ -66,7 +66,8 @@ async function otherSessions($: EngineInterface, ownId: string | undefined): Pro
 async function loadSnapshot($: EngineInterface, path: string): Promise<Snapshot | undefined> {
   const s = await $.fs.read(path).then(t => JSON.parse(t as string) as Snapshot, () => undefined)
   const ok = s?.v === 1 && typeof s.session?.id === 'string' && Array.isArray(s.agents) && Array.isArray(s.tasks) && typeof s.folded === 'object'
-  return ok ? s : undefined
+  if (!ok) return undefined
+  return Array.isArray(s.turns) ? s : { ...s, turns: [] } // files written before turns existed have none
 }
 
 // The band takes the space above the prompt only once a session has subagents to show (main alone is not worth a band).

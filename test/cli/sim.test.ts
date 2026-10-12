@@ -43,3 +43,33 @@ test('flow: the workflow scenario draws one ◆ node with each verify step chain
   assert.ok(t.some(l => /\[✓ review:correctness [^\]]+\]─ ─▶\[✓ verify:correctness/.test(l)))
   assert.ok(t.some(l => /\[✓ review:security [^\]]+\]─ ─▶\[● verify:security/.test(l)))
 })
+
+test('stages: the orchestrated scenario reduces cleanly into two turns, a tagged first dispatch and a workflow run', () => {
+  const [s] = playInstant('orchestrated', 0)
+  assert.equal(s!.simulated, true)
+  assert.equal(s!.turns.length, 2)
+  assert.ok(s!.turns.every(t => t.endedAt !== undefined))
+  assert.ok(s!.agents.some(a => a.description.includes('[class:complex]') && a.type === 'Explore'))
+  assert.equal(s!.agents.find(a => a.description === 'review:perf')!.status, 'failed')
+  assert.equal(s!.workflows.wf_orch, 'review-changes')
+  assert.equal(s!.tasks.length, 5)
+  const total = SCENARIOS.orchestrated!.sessions[0]!.steps.reduce((n, st) => n + st.after, 0)
+  assert.ok(total >= 15_000 && total <= 20_000, `${total} ms`)
+})
+
+test('stages: mid-run the orchestrated flow shows its stages; at the end the first turn is one line', () => {
+  const draw = (until?: number) => {
+    const [s] = playInstant('orchestrated', 0, until)
+    return layout(s!, { width: 160, height: 40, now: s!.writtenAt, view: 'agent', runningOnly: false, expanded: false, rules: [] }).map(rowText)
+  }
+  const mid = draw(6_000)
+  assert.match(mid[2]!, /^\[● request · \w+\]─▶\[✓ classify: complex 1s\]─▶\[⑂ route\]─┬─ Explore ───▶\[● \[T1\] Explore — list files i… · Read /)
+  assert.ok(mid.some(l => /├─ Explore ───▶\[● \[T2\] Explore — count test f…/.test(l)))
+  assert.ok(mid.some(l => /└─ workflow ──▶\[◆ review-changes\]─┬─▶\[● review:bugs/.test(l)))
+  assert.ok(!mid.some(l => /request #/.test(l)))
+  assert.ok(mid.some(l => /^Progress {2}tasks 0\/5 done · 4 running/.test(l)))
+  const end = draw()
+  assert.match(end[2]!, /^\[✓ request\]─▶\[✓ plan 1s\]─▶\[⑂ route\]─── Explore ──▶\[✓ \[T6\] Explore — summarize th… 2s\]$/)
+  assert.match(end[3]!, /^◉ request #1 · 5 agents ✗ 1 failed \d+s$/)
+  assert.ok(end.includes('Progress  tasks 4/5 done · 0 running · 5 done · 1 failed'))
+})

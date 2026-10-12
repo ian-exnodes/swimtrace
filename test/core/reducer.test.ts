@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { emptySnapshot, MAX_FINISHED, MAX_TOOLS } from '../../mod/core/model.ts'
+import { emptySnapshot, MAX_FINISHED, MAX_TOOLS, MAX_TURNS, type Snapshot } from '../../mod/core/model.ts'
 import { reduce, reduceAll } from '../../mod/core/reducer.ts'
 
 const S = () => emptySnapshot({ id: 's1', project: '/p', startedAt: 0 })
@@ -228,4 +228,43 @@ test('final fix 3: unknown after session end stays final', () => {
   assert.equal(agent(ended, 'a')!.endReason, 'session-end')
   assert.equal(reduce(ended, { kind: 'toolCall', at: 30, agentId: 'a', tool: 'Grep' }), ended)
   assert.equal(reduce(ended, { kind: 'runEnd', at: 31, agentId: 'a', reason: 'answer' }), ended)
+})
+
+// Stages: main's turns (timestamps only)
+const turn = (phase: 'start' | 'end', at: number) => ({ kind: 'mainTurn', at, phase })
+
+test('stages: a main turn start pushes a turn, its end closes it; session end closes an open one', () => {
+  assert.deepEqual(S().turns, [])
+  let s = reduceAll(S(), [turn('start', 10), turn('end', 20), turn('start', 30)])
+  assert.deepEqual(s.turns, [{ startedAt: 10, endedAt: 20 }, { startedAt: 30 }])
+  s = reduce(s, { kind: 'sessionEnd', at: 40, reason: 'other' })
+  assert.deepEqual(s.turns, [{ startedAt: 10, endedAt: 20 }, { startedAt: 30, endedAt: 40 }])
+  // a start while a turn is open (its end was missed) opens a new one and leaves the old end unknown
+  assert.deepEqual(reduceAll(S(), [turn('start', 1), turn('start', 2)]).turns, [{ startedAt: 1 }, { startedAt: 2 }])
+})
+
+test('stages: only the last MAX_TURNS turns are kept, oldest first', () => {
+  const evs: object[] = []
+  for (let i = 0; i < MAX_TURNS + 5; i++) evs.push(turn('start', i * 10), turn('end', i * 10 + 5))
+  const s = reduceAll(S(), evs)
+  assert.equal(s.turns.length, MAX_TURNS)
+  assert.equal(s.turns[0]!.startedAt, 50)
+  assert.equal(s.turns.at(-1)!.endedAt, (MAX_TURNS + 4) * 10 + 5)
+})
+
+test('stages: an end with no open turn, main already waiting, returns the same object', () => {
+  const s = reduceAll(S(), [turn('start', 1), turn('end', 2)])
+  assert.equal(reduce(s, turn('end', 3)), s)
+  assert.equal(reduce(s, { kind: 'tick', at: 4, staleWorkflowMs: 600_000 }), s)
+  const ended = reduce(s, { kind: 'sessionEnd', at: 5, reason: 'other' })
+  assert.deepEqual(ended.turns, s.turns) // nothing open to close
+})
+
+test('stages: a snapshot written before turns existed reduces fine', () => {
+  const { turns: _t, ...old } = S()
+  const s = reduceAll(old as Snapshot, [spawn('a', 1), turn('start', 2), turn('end', 3)])
+  assert.deepEqual(s.turns, [{ startedAt: 2, endedAt: 3 }])
+  const s2 = reduce({ ...(old as Snapshot), turns: 'junk' as never }, turn('end', 9))
+  assert.equal(s2.agents.find(a => a.id === 'main')!.status, 'waiting')
+  assert.ok(reduce(old as Snapshot, { kind: 'sessionEnd', at: 5, reason: 'other' }).session.endedAt === 5)
 })

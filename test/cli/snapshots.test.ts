@@ -99,3 +99,12 @@ test('listSessions keeps a session whose file was overwritten with a wrong shape
   assert.equal(list.length, 1)
   assert.equal(list[0]!.snap.session.id, 'a')
 })
+
+test('stages: a file written before turns existed reads with no turns', () => {
+  const p = join(dir(), 's.json')
+  const { turns: _t, ...old } = snap('s', '/p', 1)
+  writeFileSync(p, JSON.stringify(old))
+  assert.deepEqual(readSnapshot(p).snap!.turns, [])
+  writeFileSync(p, JSON.stringify({ ...snap('s', '/p', 1), turns: [{ startedAt: 5 }] }))
+  assert.deepEqual(readSnapshot(p).snap!.turns, [{ startedAt: 5 }])
+})

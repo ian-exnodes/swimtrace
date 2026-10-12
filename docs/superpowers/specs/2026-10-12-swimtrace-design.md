@@ -93,6 +93,9 @@ Read-only clone; nothing installed or modified. The monitor does not depend on i
 | Workflow `phase` / `label` per agent | ✓ label (as the spawn description) | | | phase |
 | Step order inside a workflow run | | `<step>:<key>` labels → dashed `─ ─▶` edge in the flow view (amended 2026-10-12) | | when labels do not follow the shape |
 | Data flow between agents (what one handed another) | | | | ✗ not observable: no edge is drawn |
+| Main turn start / end (amended 2026-10-12, stages) | ✓ `turn.start` / `turn.complete` without an agent id | | | the prompt is never kept |
+| Task classification | | planning phase: turn start → first dispatch (timing) | `[class:<word>]` tag in a dispatch's description | the classification itself, without the tag |
+| Routing decision | ✓ the result: each dispatch's agent type (the route's branch label) | | | the reason for the choice: never shown |
 | Model per agent, tools used (names) | ✓ `agent.spawn` result `model`; `tool.call` names | | | |
 | Explicit pool membership | | | `[pool:Name]` description prefix | |
 | Logical pool (rules) | | ✓ config rules on type/description/name/project | | |
@@ -169,6 +172,7 @@ interface Snapshot {
   tasks: Task[]
   workflows: Record<string, string>   // runId → workflow meta.name
   folded: { completed: number; failed: number; interrupted: number; killed: number; unknown: number }
+  turns: { startedAt: number; endedAt?: number }[]   // main's turns, oldest first, last 20; readers treat a missing one as [] (amended 2026-10-12)
 }
 ```
 
@@ -194,6 +198,9 @@ Rules:
 - `listStatus` (from `$.agent.list()`): `killed` → `killed`; `failed`/`completed` → set when no
   `runEnd` was seen; `waiting`/`idle` → `waiting`; `running`/`pending` → `running`.
 - `mainTurn`: `start` → `main` running; `end` → `main` waiting (never completed; `main` ends with the session).
+  `start` also pushes a turn `{ startedAt }` (last 20 kept); `end`, and `sessionEnd`, set `endedAt` on the open one.
+  A start while a turn is open leaves that end unknown (layout bounds it by the next start). A snapshot without
+  `turns` (written before them) reduces as if it had none. (Amended 2026-10-12, stages.)
 - `tick(now)`: a workflow-run agent still `running` with `lastSeenAt` older than 10 minutes becomes
   `unknown` with `endReason: 'stale'` (never `completed`). Such an agent is only presumed gone: its own
   later `toolCall` revives it to `running`, and its `runEnd` sets the real end. An ended session marks its
@@ -267,24 +274,51 @@ the footer totals are gone.)
 a list of `{ text, fg?, bold?, dim?, inverse? }` segments. The band maps segments to `Box`/`Text`; the CLI maps them
 to ANSI. `view` is `'agent'` (the flow, the default everywhere) or `'pool'` (the pools view).
 
-```
-SWIMTRACE  proj  session e57186f5   5 agents · 1 running · 3 done · 1 failed
+(Amended 2026-10-12, stages: the flow shows the orchestration stages of main's turns; main's own node became the
+request node.)
 
-[● main · Bash]─┬─▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
-                │                └─▶[✗ review:perf 42s]
-                ├─▶[✓ list files in src 13s]
-                └─▶[✓ count test files 10s]
+```
+SWIMTRACE  proj  session e57186f5   5 agents
+
+[✓ request]─▶[✓ classify: complex 8s]─▶[⑂ route]─┬─ Explore ───▶[✓ [T1] list files 13s]
+                                                 ├─ Explore ───▶[✓ [T2] count tests 10s]
+                                                 └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
+                                                                              └─▶[✗ review:perf 42s]
+Progress  tasks 3/5 done · 1 running · 3 done · 1 failed
 ```
 
-- Header: project basename, short session id, `SIMULATED`/`STALE`/`ENDED` markers, then a dim summary
-  `N agents · R running · D done · F failed`, with `· W waiting`, `· S stopped` (interrupted + killed) and
-  `· U unknown` only when non-zero. Subagents only, folded counters included.
+- Header: project basename, short session id, `SIMULATED`/`STALE`/`ENDED` markers, then a dim `N agents`
+  (subagents only, folded counters included).
+- Stages (flow view only). A dispatch is a child of main (`parentAgentId` absent, `main`, or not shown), workflow
+  agents included. Each dispatch belongs to the turn with the latest start no later than its own; dispatches before
+  any recorded turn form a turn of their own, starting at the earliest of them. Only turns with a dispatch are drawn.
+  The latest is drawn in full: `[◉ request]` ─▶ classify ─▶ `[⑂ route]` (joined by `─▶`), then one branch per
+  dispatch, or per ◆ workflow node, in start order.
+  - Request: main. `[● request · <tool>]` while main runs, `[? request]` in a stale session, `[✓ request]` once the
+    turn is over (it ended, a later turn started, or the session ended), `[◉ request]` otherwise. Selectable as main
+    (not when runningOnly hides main; it still draws).
+  - Classify: the planning phase, turn start → first dispatch, `[✓ plan 8s]`; `[✓ classify: <word> 8s]` when a dispatch
+    description of that turn holds `[class:<word>]` (`\[class:([\w-]+)\]`, first by start order). No time for a turn
+    with no recorded start. Every `[class:…]` tag (and one space after it) is stripped from labels everywhere. Timing
+    and the tag only: no classification is ever inferred. Computed from all dispatches, so runningOnly leaves it be.
+  - Route: `[⑂ route]`, bold, not selectable. Each branch is labelled, dim, on its edge with the dispatch's agent type
+    or `workflow` (`─ Explore ───▶`), capped at 16 cells, padded in a group so the arrows line up. The reason for a
+    routing choice is not observable and never shown.
+  - Earlier turns: one dim line each under the flow, newest first: `◉ request #<n> · <k> agents <summary> <duration>`
+    (n counts drawn turns from 1; summary `✓` when all completed, else `✗ f failed`, `● r running`, and waiting /
+    stopped / unknown counts when any; the duration ends at the turn's end, else the next turn's start). Their agents
+    are not drawn and not selectable.
+  - Main alone (no dispatch): the request node alone.
+- Progress row, both views, under the details and above the tasks strip: `Progress  tasks D/T done · R running ·
+  D done · F failed` (the tasks part only with tasks; waiting, stopped (interrupted + killed) and unknown when
+  non-zero). Subagents only, folded counters included.
 - Agent node: `[<glyph> <label>[ · <current tool>] <duration>]`, coloured by status, inverse when selected; the tool
-  only while running. Main is `[● main · Bash]` / `[◌ main]`, no duration. Labels and workflow names are capped at
+  only while running. Labels and workflow names are capped at
   28 cells, tools at 14 (an `mcp__<server>__` prefix dropped), with `…`; details show the full label. Status glyphs: ● running, ◌ waiting,
   ✓ completed, ✗ failed, ■ interrupted/killed, ? unknown.
-- Solid edges: parent → child (`parentAgentId` when that agent is shown, else main), children in start order. The
-  children of a node start 4 cells after it: `───▶` for one, `─┬─▶` / `├─▶` / `└─▶` with `│` between for several.
+- Solid edges: parent → child (`parentAgentId` when that agent is shown, else main: the route), children in start
+  order. The children of a node start 4 cells after it: `───▶` for one, `─┬─▶` / `├─▶` / `└─▶` with `│` between for
+  several (the route's labelled branches: `───`/`─┬`/`├`/`└` then `─ <label> ──▶`).
 - Workflow node `[◆ <workflow name or run id>]`, bold, not selectable: a parent's agents sharing a `workflowRunId`
   hang off one such node, placed where its earliest agent would be.
 - Dashed edge `─ ─▶`, same row: inside a workflow node, labels shaped `<step>:<key>` give steps ordered by first
@@ -292,10 +326,11 @@ SWIMTRACE  proj  session e57186f5   5 agents · 1 running · 3 done · 1 failed
   started no later than it. Inferred from labels only (details say so: `after <label> (step order inferred from
   labels)`); data flow is never drawn. Anything else is a plain child of the workflow node.
 - Below 60 columns: an indented tree, one node per line (`├▶ ` / `└▶ `, a chained agent as its predecessor's `┄▶ `
-  child). Rows are clipped to the width with a trailing `…`; too many rows end in `… n more rows`. A blank row
+  child); request, classify and route each the only child of the one before, a branch as `Explore ▶ [agent]`. Rows are clipped to the width with a trailing `…`; too many rows end in `… n more rows`. A blank row
   separates header and body unless the height is under 8 rows.
 - Pools view: one lane per pool (§6), header `NAME · source`, then its agents one per line.
-- Selection walks the drawn order (row by row, left to right; workflow nodes skipped), the same in both widths.
+- Selection walks the drawn order (row by row, left to right; the request node as main, workflow, classify and route
+  nodes skipped), the same in both widths.
 - Tasks strip only when Task tools were used; "pending" appears only there.
 - Keys: ↑/↓ select · Enter details (id, parent, type, pool + source, current tool, start/end, end reason, model,
   tools used, inferred predecessor) · `g` flow/pools · `r` running only · Tab next session (CLI) · `q` quit (CLI).
@@ -314,7 +349,7 @@ unknown `v` skipped with a notice.
 
 ## 8. Simulation mode
 
-`swimtrace sim [fanout | failure | workflow | multi-session | crash]` feeds scripted events through
+`swimtrace sim [fanout | failure | workflow | orchestrated | multi-session | crash]` feeds scripted events through
 the real `core/reducer.ts`, writes snapshots with `simulated: true` to `~/.claude/swimtrace/sim/`,
 and opens the viewer on them with a `SIMULATED` badge. Simulated snapshots never live in
 `sessions/` and are never shown with real sessions. No tokens are spent.

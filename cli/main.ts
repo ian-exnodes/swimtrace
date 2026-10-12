@@ -12,7 +12,7 @@ const HELP = `swimtrace — live flow of Claude Code subagents
 
   swimtrace            follow the newest live session of this directory
   swimtrace --all      start at the list of all sessions
-  swimtrace sim <fanout|failure|workflow|multi-session|crash> [--speed N]
+  swimtrace sim <fanout|failure|workflow|orchestrated|multi-session|crash> [--speed N]
   swimtrace clean      delete ~/.claude/swimtrace (snapshots, sim data, config)
 
 keys: ↑/↓ select · Enter details · g flow/pools · r running only · l session list · Tab next session · q quit`

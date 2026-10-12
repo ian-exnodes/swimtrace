@@ -31,9 +31,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await boot($, on, surface)
     const ui = await $.ui.mount({ plugin: 'swimtrace', surface, ...BAND })
     expect(await ui.find({ type: 'Text', text: /SWIMTRACE/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /1 agent · 1 running/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ {3}1 agent$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^\[● scan repo 0s\]$/ })).toBeDefined() // the flow is the default
-    expect(await ui.find({ type: 'Text', text: /^───▶$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\[◉ request\]$/ })).toBeDefined() // no turn seen: the stages of a turn of its own
+    expect(await ui.find({ type: 'Text', text: /^─── Explore ──▶$/ })).toBeDefined() // the route's branch, labelled by type
+    expect(await ui.find({ type: 'Text', text: /^ {2}1 running · 0 done · 0 failed$/ })).toBeDefined() // the Progress row
     expect(await ui.find({ type: 'Text', text: /Explore · type/ })).toBeUndefined()
     expect((await ui.find({ type: 'Button', key: 'view' }))?.text).toBe('pools')
     await ui.press({ key: 'view' })
