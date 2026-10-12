@@ -2411,14 +2411,20 @@ In a second terminal: `swimtrace` (from the same project directory).
 
 - [ ] **Step 2: Exercise it**
 
-In the Claude session: `/swimtrace`, then ask: "Use two parallel Explore agents: one lists the files in mod/core, one lists the files in cli. Report one line each."
+In the Claude session: `/swimtrace`, then ask: "Use two parallel Explore agents: one lists the files in mod/core, one lists the files in cli. Report one line each. In the first agent's prompt include the word PELICANWORD, in the second's the word OTTERWORD."
+
+Then, for spike S2 and multi-run agents:
+
+- Ask for a tiny Workflow run with two `agent()` calls: one with `label: 'S2-LABELLED'` and a prompt containing `HERONWORD`, one with no `label` and a prompt containing `BADGERWORD`. Afterwards read each spawned agent's `description` in the snapshot (`jq '.agents[] | select(.workflowRunId) | {id, description}' ~/.claude/swimtrace/sessions/<id>.json`). Record whether the labelled one carries `S2-LABELLED` (resolves S2) and whether either description carries prompt text (`HERONWORD`/`BADGERWORD`).
+- Once the first Explore agent has finished, ask Claude to continue it with SendMessage ("send the first Explore agent one more question: how many files was that?"). Record what the snapshot and the CLI show for that agent: a revived bar, a second entry, or nothing (evidence for the parked multi-run-agent finding).
 
 - [ ] **Step 3: Verify**
 
 - Pane and CLI both show `MAIN · main` running, then an `Explore · type` lane with two stacked `●` bars, then `✓` with durations.
-- `cat ~/.claude/swimtrace/sessions/*.json | grep -c '"prompt"'` → `0`; no file paths from the prompt appear in the snapshot.
+- For each planted word: `grep -l -e PELICANWORD -e OTTERWORD -e HERONWORD -e BADGERWORD ~/.claude/swimtrace/sessions/*.json` prints nothing, and `grep -c PELICANWORD <file>` (likewise each word) is `0` for every snapshot file; no file paths from the prompts appear in the snapshot.
 - Press Esc during a run of a third agent → its bar shows `■` (interrupted).
 - `/clear` → CLI shows the old session `[ENDED]`; Tab reaches a new one after the next prompt.
-- Kill the Claude process with `kill -9` → CLI shows `[STALE]` within ~15 s.
+- Kill the Claude process with `kill -9` while a subagent is running → within ~15 s the CLI shows `[STALE]` AND that session's agents still marked running (main and any subagent) as `?`, not `●`, with durations no longer growing.
+- Record the S2 result (labelled description) and the SendMessage observation in spec §13 / the report.
 
 - [ ] **Step 4: Report** results (pass/fail per bullet, with any snapshot excerpt) to the person.

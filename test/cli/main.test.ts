@@ -1,7 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { canClean, guard } from '../../cli/main.ts'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { canClean, guard, safeToClean, sessionListRows } from '../../cli/main.ts'
 import { swimtraceDir } from '../../cli/snapshots.ts'
+import { emptySnapshot } from '../../mod/core/model.ts'
+import { cellWidth, rowText } from '../../mod/core/layout.ts'
 
 test('guard reports a throw exactly once and passes args through', () => {
   const errs: unknown[] = []
@@ -21,4 +26,31 @@ test('empty CLAUDE_CONFIG_DIR / HOME are treated as unset; clean refuses non-abs
   assert.equal(canClean(bad), false)
   assert.equal(canClean('/x/other'), false)
   assert.equal(canClean('/x/.claude/swimtrace'), true)
+})
+
+test('final fix 5: session list rows blank control characters and fit wide characters by cells', () => {
+  const snap = emptySnapshot({ id: 'sess-abcdef12', project: '/w/\x1b[2J漢字漢字漢字/proj', startedAt: Date.now() })
+  const rows = sessionListRows([{ path: '/x/sess.json', snap, stale: false, mtimeMs: 0 }], 0, 20)
+  for (const row of rows) {
+    const t = rowText(row)
+    assert.ok(!t.includes('\x1b'), `escape in ${JSON.stringify(t)}`)
+    assert.ok(cellWidth(t) <= 20, `too wide: ${JSON.stringify(t)}`)
+  }
+  assert.ok(rows.some(r => rowText(r).includes('漢')))
+})
+
+test('final fix 6: clean deletes only a swimtrace folder holding nothing but its own files', () => {
+  const base = mkdtempSync(join(tmpdir(), 'swimtrace-clean-'))
+  try {
+    const root = join(base, 'swimtrace')
+    assert.deepEqual(safeToClean(root), { ok: true, missing: true }) // nothing there: nothing to delete
+    mkdirSync(join(root, 'sessions'), { recursive: true })
+    writeFileSync(join(root, 'config.json'), '{}')
+    assert.deepEqual(safeToClean(root), { ok: true, missing: false })
+    writeFileSync(join(root, 'README.md'), '# a repo that happens to share the name')
+    const r = safeToClean(root)
+    assert.equal(r.ok, false)
+    assert.match(r.ok ? '' : r.why, /README\.md/)
+    assert.equal(safeToClean(join(base, 'other')).ok, false)
+  } finally { rmSync(base, { recursive: true, force: true }) }
 })

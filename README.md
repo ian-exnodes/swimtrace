@@ -59,11 +59,14 @@ so editing the config re-sorts existing agents.
 | start, end, duration, parent of every subagent | Claude Code's own agent events |
 | completed / failed / interrupted | how each agent's run ended |
 | killed, waiting | Claude Code's agent list (not for workflow agents) |
-| current tool (name only) | tool-call events |
-| tasks and their blockers | only when the TaskCreate/TaskUpdate tools are used |
+| current tool: the one in progress (name only) | tool-call events |
+| tasks: subject, status, blockers | only when the TaskCreate/TaskUpdate tools are used |
 
-Never shown: progress percentages, prompts, tool inputs or outputs, answers. A workflow agent silent for
-`staleWorkflowAgentMinutes` shows `?` (unknown), never "done". A session whose heartbeat stops shows `STALE`.
+Shown as text: each Agent call's short description and each task's subject (from TaskCreate/TaskUpdate). Never
+shown: progress percentages, prompts, other tool inputs, tool outputs, answers. A workflow agent silent for
+`staleWorkflowAgentMinutes` shows `?` (unknown), never "done", and comes back if it calls a tool or finishes.
+A session whose heartbeat stops (Claude Code crashed or was killed) shows `STALE`, and its agents show `?`
+from then on, their durations ending at the last heartbeat.
 Workflow agents' own descriptions are not assumed to carry any label.
 
 ## Data and uninstall
@@ -77,7 +80,9 @@ npm rm -g swimtrace
 swimtrace clean           # run before uninstalling the CLI to delete ~/.claude/swimtrace
 ```
 
-`swimtrace clean` refuses to delete anything unless the target is an absolute path ending in `swimtrace`.
+`swimtrace clean` refuses to delete anything unless the target is an absolute path ending in `swimtrace` that holds
+only `sessions/`, `sim/` and `config.json`; anything else in it (say, a folder of your own that shares the name)
+makes it refuse and name what it found.
 
 ## Requirements and limits
 

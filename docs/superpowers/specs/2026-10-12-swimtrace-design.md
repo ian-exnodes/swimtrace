@@ -81,7 +81,7 @@ Read-only clone; nothing installed or modified. The monitor does not depend on i
 | Workflow agent end | ✓ `turn.complete` with its id | | | |
 | Workflow agent stuck/killed | | staleness → `unknown` | | exact state |
 | Parent–child relationship | ✓ `parentAgentId` | | | |
-| Current activity (tool name per agent) | ✓ `tool.call` | | | |
+| Current activity (tool name per agent, the one in progress) | ✓ `tool.call` | | | |
 | Execution duration | ✓ spawn time → `turn.complete` | | | |
 | Session start / end | ✓ `session.start` / `session.end` | | | |
 | Session crashed / killed | | heartbeat staleness → `stale` | | cause |
@@ -144,8 +144,8 @@ interface Agent {
   status: Status
   startedAt: number         // ms epoch
   endedAt?: number
-  endReason?: 'answer' | 'aborted' | 'refusal' | 'error' | 'killed' | 'stale'
-  currentTool?: string      // tool NAME only
+  endReason?: 'answer' | 'aborted' | 'refusal' | 'error' | 'killed' | 'stale' | 'session-end'
+  currentTool?: string      // tool NAME only: the tool in progress (set as it starts, kept until the next one or the run's end)
   lastSeenAt: number
 }
 
@@ -159,7 +159,7 @@ interface Snapshot {
   agents: Agent[]           // at most 200 finished + all live
   tasks: Task[]
   workflows: Record<string, string>   // runId → workflow meta.name
-  folded: { completed: number; failed: number; interrupted: number; killed: number }
+  folded: { completed: number; failed: number; interrupted: number; killed: number; unknown: number }
 }
 ```
 
@@ -167,7 +167,8 @@ Pools are not stored on `Agent`: they resolve at render time via `resolvePool` w
 
 **Privacy rule (data model, not renderer):** a snapshot never contains prompt text, tool input, tool
 output, or answer text. `description` is the Agent call's short task label, which the user already
-sees in Claude Code's own UI. Rendered text has control characters stripped, and rows are clipped by
+sees in Claude Code's own UI. The one piece of tool input kept is a task's `subject` (from
+`TaskCreate`/`TaskUpdate`), plus tool names and a workflow's `meta.name`. Rendered text has control characters stripped, and rows are clipped by
 terminal cells.
 
 ### 5.2 Reducer (`core/reducer.ts`)
@@ -175,7 +176,7 @@ terminal cells.
 `reduce(snapshot, event, config): Snapshot` — pure. Events are a small internal union produced by
 the collector (or the simulator):
 
-`spawn | toolCall | runEnd | listStatus | taskCreate | taskUpdate | workflowName | sessionEnd | tick`
+`spawn | toolCall | runEnd | mainTurn | listStatus | taskCreate | taskUpdate | workflowName | sessionEnd | tick`
 
 Rules:
 - Events missing required fields are dropped. Duplicate `spawn` for a known id is ignored; a
@@ -183,20 +184,25 @@ Rules:
 - `runEnd.reason`: `answer` → `completed`; `error`/`refusal` → `failed`; `aborted` → `interrupted`.
 - `listStatus` (from `$.agent.list()`): `killed` → `killed`; `failed`/`completed` → set when no
   `runEnd` was seen; `waiting`/`idle` → `waiting`; `running`/`pending` → `running`.
+- `mainTurn`: `start` → `main` running; `end` → `main` waiting (never completed; `main` ends with the session).
 - `tick(now)`: a workflow-run agent still `running` with `lastSeenAt` older than 10 minutes becomes
-  `unknown` (never `completed`). An ended session marks its remaining `running` agents `unknown`.
+  `unknown` with `endReason: 'stale'` (never `completed`). Such an agent is only presumed gone: its own
+  later `toolCall` revives it to `running`, and its `runEnd` sets the real end. An ended session marks its
+  remaining live agents `unknown` with `endReason: 'session-end'` (main: `completed`), and that is final.
 - When finished agents exceed 200, the oldest fold into `folded` counters.
 
 ### 5.3 Collector (`mod/hooks/register.tsx`)
 
-Every hook is observation-only: it awaits `next(e)` first, returns that result unchanged, and does
-its bookkeeping afterwards inside `try/catch`.
+Every hook is observation-only: it returns `next(e)`'s result unchanged and does its bookkeeping inside
+`try/catch`, after `next(e)` settled. One exception: `tool.call` starts recording the tool's name beside
+`next(e)` (never awaited before it, so the call is not held up) and awaits that once `next(e)` settled, so
+an agent's current tool is the one in progress; what the result adds is recorded after.
 
 | Hook | Records |
 | --- | --- |
-| `session.start` | session id, project (`$.session.cwd()`), registers `/swimtrace`, starts timers |
+| `session.start` | session id, project (`$.session.cwd()`), reads `config.json` (the one disk read in a hook), registers `/swimtrace`, starts timers |
 | `agent.spawn` | after `next(e)` resolves with `agentId`: `spawn` with `parentAgentId`, `subagentType`, `description`, `name`, `workflow?.runId` |
-| `tool.call` | `toolCall { agentId ?? 'main', tool }`; for `TaskCreate`/`TaskUpdate`, `taskCreate`/`taskUpdate` from input + result; for `Workflow`, `workflowName` from its result |
+| `tool.call` | as the tool starts: `toolCall { agentId ?? 'main', tool }`; once it settled (not refused, not an error): for `TaskCreate`/`TaskUpdate`, `taskCreate`/`taskUpdate` from input + result; for `Workflow`, `workflowName` from its result |
 | `turn.start` | main loop only: `main` → `running` |
 | `turn.complete` | subagent: `runEnd { agentId, reason, durationMs }`; main loop: `main` → `waiting` (idle between turns), never `completed` — `main` ends only with the session |
 | `session.end` | `sessionEnd`; force-writes the final snapshot (the one disk write inside a hook, so `endedAt` survives exit); a `/clear` makes the next event open a new snapshot under the new id |
@@ -211,9 +217,12 @@ keeps it.
 
 - Path: `${CLAUDE_CONFIG_DIR ?? HOME + '/.claude'}/swimtrace/sessions/<sessionId>.json`, resolved
   via `$.env.get`.
-- Written from a timer, never inside a hook: at most every 250 ms when state changed, and a
-  heartbeat (refresh `writtenAt`) every 5 s regardless.
-- Readers treat `writtenAt` older than 15 s on a session without `endedAt` as `stale`.
+- Written from a timer, never inside a hook, with one exception: `session.end` forces a final write
+  (§5.3), since the process may exit right after it. Otherwise at most every 250 ms when state changed,
+  and a heartbeat (refresh `writtenAt`) every 5 s regardless.
+- Readers treat `writtenAt` older than 15 s on a session without `endedAt` as `stale`, and draw its
+  live agents (main included) as `unknown`, their durations ending at `writtenAt`. This happens when
+  drawing (`layout`); the snapshot itself is not changed.
 
 ## 6. Pool resolution (`core/pools.ts`)
 
@@ -296,17 +305,21 @@ and opens the viewer on them with a `SIMULATED` badge. Simulated snapshots never
 | Data | `swimtrace clean` removes `~/.claude/swimtrace/` | |
 
 Snapshots older than 7 days are pruned by the CLI viewer at start. `swimtrace clean` refuses to delete
-unless the target is an absolute path ending in `swimtrace`.
+unless the target is an absolute path ending in `swimtrace` that holds nothing but `sessions/`, `sim/`
+and `config.json` (on a case-insensitive disk `~/swimtrace` is also an unrelated `~/SwimTrace`); a missing
+folder is nothing to delete.
 
 No step reads or writes `settings.json`, project files, or existing hooks.
 
 ## 10. Error handling and fail-open
 
 - Collector hooks never change or refuse what they observe; bookkeeping errors are caught; disk I/O
-  is off the hook path. If the mod itself fails, the engine skips its hooks.
+  is off the hook path, but for `session.start` reading `config.json` and `session.end`'s final write
+  (§5.3, §5.4). If the mod itself fails, the engine skips its hooks.
 - The CLI is read-only on Claude Code's side; its own crash affects nothing else.
 - Malformed events dropped; malformed snapshot → keep last good; unknown version → skip.
-- Unexpected termination → heartbeat staleness → session `stale`, its running agents `unknown`.
+- Unexpected termination → heartbeat staleness → session `stale`, its running agents drawn `unknown`
+  (render time, §5.4).
 - Restart → the CLI rebuilds from snapshots; a mod hot reload keeps `$.state`.
 
 ## 11. Testing
