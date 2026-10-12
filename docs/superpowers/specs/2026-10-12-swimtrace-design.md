@@ -147,7 +147,6 @@ interface Agent {
   endReason?: 'answer' | 'aborted' | 'refusal' | 'error' | 'killed' | 'stale'
   currentTool?: string      // tool NAME only
   lastSeenAt: number
-  pool: { name: string; source: PoolSource }
 }
 
 interface Task { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed'; blockedBy: string[] }
@@ -164,9 +163,12 @@ interface Snapshot {
 }
 ```
 
+Pools are not stored on `Agent`: they resolve at render time via `resolvePool` with the current config.
+
 **Privacy rule (data model, not renderer):** a snapshot never contains prompt text, tool input, tool
 output, or answer text. `description` is the Agent call's short task label, which the user already
-sees in Claude Code's own UI.
+sees in Claude Code's own UI. Rendered text has control characters stripped, and rows are clipped by
+terminal cells.
 
 ### 5.2 Reducer (`core/reducer.ts`)
 
@@ -177,7 +179,7 @@ the collector (or the simulator):
 
 Rules:
 - Events missing required fields are dropped. Duplicate `spawn` for a known id is ignored; a
-  `runEnd` for an unknown id creates an `unknown` agent row with what is known.
+  `runEnd` for an unknown id is ignored (the agent list heals missed spawns).
 - `runEnd.reason`: `answer` → `completed`; `error`/`refusal` → `failed`; `aborted` → `interrupted`.
 - `listStatus` (from `$.agent.list()`): `killed` → `killed`; `failed`/`completed` → set when no
   `runEnd` was seen; `waiting`/`idle` → `waiting`; `running`/`pending` → `running`.
@@ -192,13 +194,15 @@ its bookkeeping afterwards inside `try/catch`.
 
 | Hook | Records |
 | --- | --- |
-| `session.start` | session id, project (`$.session.cwd()`), registers `/swimtrace`, starts timers, prunes snapshots older than 7 days |
+| `session.start` | session id, project (`$.session.cwd()`), registers `/swimtrace`, starts timers |
 | `agent.spawn` | after `next(e)` resolves with `agentId`: `spawn` with `parentAgentId`, `subagentType`, `description`, `name`, `workflow?.runId` |
 | `tool.call` | `toolCall { agentId ?? 'main', tool }`; for `TaskCreate`/`TaskUpdate`, `taskCreate`/`taskUpdate` from input + result; for `Workflow`, `workflowName` from its result |
 | `turn.start` | main loop only: `main` → `running` |
 | `turn.complete` | subagent: `runEnd { agentId, reason, durationMs }`; main loop: `main` → `waiting` (idle between turns), never `completed` — `main` ends only with the session |
-| `session.end` | `sessionEnd`; flushes the snapshot; a `/clear` makes the next event open a new snapshot under the new id |
+| `session.end` | `sessionEnd`; force-writes the final snapshot (the one disk write inside a hook, so `endedAt` survives exit); a `/clear` makes the next event open a new snapshot under the new id |
 | `$.clock.every(1000)` | `$.agent.list()` → `listStatus` per agent; `tick(now)` |
+
+`toolCall` and `runEnd` for never-seen ids are ignored; a missed spawn heals via the agent list.
 
 State lives in `$.state` (`swimtrace.snapshot`) so the pane re-renders on change and a hot reload
 keeps it.
@@ -264,7 +268,8 @@ Running 2 · Waiting 1 · Done 1 · Failed 1 · Unknown 0
 - Tasks strip only when Task tools were used; "pending" appears only there.
 - Keys: ↑/↓ select · Enter details (id, parent, type, pool + source, current tool, start/end, end
   reason) · `g` pool/agent view · `r` running only · `+`/`-` zoom · Tab next session (CLI) · `q`
-  quit (CLI).
+  quit (CLI). In the pane the keys are button hotkeys: `g` pools/agents, `r` running only, `j`/`k` select,
+  `d` details, `n` other sessions. Zoom and `q` are CLI-only.
 
 **Pane:** `/swimtrace` opens it (docks at any width); a session switcher reads other snapshot files
 with `$.fs`. Not opened unasked.
@@ -289,6 +294,9 @@ and opens the viewer on them with a `SIMULATED` badge. Simulated snapshots never
 | Install | `/plugin install swimtrace --marketplace ian-exnodes/swimtrace` (user scope → every project) | `npm i -g swimtrace` or `npm i -g .` from the repo |
 | Uninstall | `/plugin uninstall swimtrace` | `npm rm -g swimtrace` |
 | Data | `swimtrace clean` removes `~/.claude/swimtrace/` | |
+
+Snapshots older than 7 days are pruned by the CLI viewer at start. `swimtrace clean` refuses to delete
+unless the target is an absolute path ending in `swimtrace`.
 
 No step reads or writes `settings.json`, project files, or existing hooks.
 
@@ -346,7 +354,7 @@ unchanged. One real validation run (two parallel Explore agents), run only with 
 
 ## 14. Implementation outline (detailed plan follows via writing-plans)
 
-1. Spikes S1, S2 (throwaway mod in the session mods folder).
+1. Spikes S1, S2: S1 ran via a headless `--plugin-dir` run; S2 is deferred to the real validation run.
 2. `core/model.ts` + `core/reducer.ts` with tests (cases 1–4, 7, 8).
 3. `core/pools.ts` with tests (case 5).
 4. `core/layout.ts` with tests (cases 2, 9).
