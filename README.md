@@ -35,8 +35,50 @@ SwimTrace has two parts. The **plugin** draws the flow above the prompt inside C
    swimtrace sim orchestrated
    ```
 
-   Then dispatch a few subagents in Claude Code (for example, "use two Explore agents to map this repo") and watch the
-   band fill in.
+   Then try the sample prompts below in Claude Code and watch the band fill in.
+
+## Sample prompts
+
+Paste these into Claude Code in any repository. They go from cheapest to biggest, and each shows a different part
+of the flow. Run `swimtrace` in a second terminal (a tmux split works well) to watch the same flow there.
+
+**1. Fan-out (about 1 minute)**
+
+```
+Use 3 Explore agents in parallel: one lists the top-level folders and what each is for, one finds the test setup and how to run tests, one finds the main entry point. Then give me a 5-line summary.
+```
+
+The band shows `request`, then `plan`, then `route` branching into three Explore agents.
+
+**2. Classify tag and pools (1–2 minutes)**
+
+```
+Dispatch 3 agents in parallel. Put these exact strings in each Agent description:
+"[pool:Docs] [T1] Explore — summarise the README [class:simple]",
+"[pool:Code] [T2] Explore — find the 3 largest source files [class:simple]",
+"[pool:Code] [T3] general-purpose — list TODO comments with file:line [class:simple]".
+```
+
+The plan stage reads `classify: simple`. Press `g` for the pools view, where the agents are grouped into the Docs
+and Code lanes.
+
+**3. Task progress (2–3 minutes)**
+
+```
+Create 4 tasks with TaskCreate: map folders, find tests, find config files, write summary. Run the first 3 as parallel Explore agents and mark each task done as it finishes, then do the summary yourself and mark it done.
+```
+
+`Progress` counts up to `tasks 4/4 done`.
+
+**4. Workflow with step order (about 5 minutes, the most tokens)**
+
+```
+Use a workflow: review this repo in two dimensions, bugs and readability. Label the agents review:bugs, review:readability, then verify:bugs, verify:readability to double-check each review's findings.
+```
+
+A `◆` workflow node fans out its agents, and dashed arrows run from each `review:<key>` to its `verify:<key>`.
+Claude Code runs a workflow only when you ask for one in your own words, which is why the prompt says
+"use a workflow".
 
 ## Use
 
