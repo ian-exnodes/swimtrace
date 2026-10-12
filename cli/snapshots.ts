@@ -12,9 +12,12 @@ export function readSnapshot(path: string, lastGood?: Snapshot): { snap?: Snapsh
   try { raw = JSON.parse(readFileSync(path, 'utf8')) } catch (err) {
     return { snap: lastGood, error: `${path}: not readable JSON (${(err as Error).message})` }
   }
-  const s = raw as Partial<Snapshot> | null
-  if (s?.v !== 1) return { snap: undefined, error: `${path}: unknown snapshot version ${String(s?.v)}` }
-  if (typeof s.session?.id !== 'string' || !Array.isArray(s.agents)) return { snap: lastGood, error: `${path}: malformed snapshot` }
+  const malformed = { snap: lastGood, error: `${path}: malformed snapshot` }
+  if (typeof raw !== 'object' || raw === null) return malformed
+  const s = raw as Partial<Snapshot>
+  if (typeof s.v !== 'number') return malformed
+  if (s.v !== 1) return { snap: undefined, error: `${path}: unknown snapshot version ${s.v}` }
+  if (typeof s.session?.id !== 'string' || !Array.isArray(s.agents) || typeof s.writtenAt !== 'number') return malformed
   return { snap: s as Snapshot }
 }
 

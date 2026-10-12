@@ -74,3 +74,28 @@ test('pruneOld deletes snapshots older than 7 days only', () => {
 test('a missing directory lists nothing', () => {
   assert.deepEqual(listSessions('/nope/never', 0), [])
 })
+
+test('wrong-shaped valid JSON keeps the last good snapshot', () => {
+  const d = dir()
+  const p = join(d, 's.json')
+  writeFileSync(p, JSON.stringify(snap('s', '/p', 1)))
+  const good = readSnapshot(p).snap!
+  for (const body of ['null', '{}', '{"v":1,"session":{"id":"s"},"agents":[]}']) {
+    writeFileSync(p, body)
+    const r = readSnapshot(p, good)
+    assert.equal(r.snap, good, body)
+    assert.match(r.error!, /malformed/, body)
+  }
+})
+
+test('listSessions keeps a session whose file was overwritten with a wrong shape', () => {
+  const d = dir()
+  const p = join(d, 'a.json')
+  writeFileSync(p, JSON.stringify(snap('a', '/p', 5)))
+  const cache = new Map<string, Snapshot>()
+  assert.equal(listSessions(d, 6, cache).length, 1)
+  writeFileSync(p, '{}')
+  const list = listSessions(d, 6, cache)
+  assert.equal(list.length, 1)
+  assert.equal(list[0]!.snap.session.id, 'a')
+})
