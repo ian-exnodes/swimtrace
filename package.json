@@ -1,0 +1,19 @@
+{
+  "name": "swimtrace",
+  "version": "0.1.0",
+  "description": "Swimlane monitor for Claude Code multi-agent runs",
+  "type": "module",
+  "bin": { "swimtrace": "dist/cli/main.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "test:mod": "claude plugin test mod",
+    "validate": "claude plugin validate mod && claude plugin validate .",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
+    "prepare": "npm run build"
+  },
+  "devDependencies": { "typescript": "^5.8.0", "@types/node": "^24.0.0" },
+  "license": "MIT"
+}

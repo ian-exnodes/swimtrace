@@ -337,8 +337,12 @@ unchanged. One real validation run (two parallel Explore agents), run only with 
 - **S1** — `$.fs.write` to an absolute path under `~/.claude/swimtrace/` from a mod: no prompt, no
   refusal. Fallback if refused: per-session keys in `$.store` (4 MiB cap; concurrent sessions may
   overwrite each other — degraded mode, documented).
+  Result (2026-10-12): PASS. A headless run (`claude -p --plugin-dir <spike>`) fired `session.start`;
+  `$.fs.write` created `~/.claude/swimtrace/spike/s1.json` (`{"ok":true,...}`) with no prompt and no
+  refusal. No fallback needed.
 - **S2** — whether a workflow agent's `description` in `agent.spawn` carries the script's `label`.
   If yes, a built-in rule can expose it; if no, matrix row stays "not observable".
+  Result: pending — deferred to the real validation run (plan Task 12).
 
 ## 14. Implementation outline (detailed plan follows via writing-plans)
 

@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false, "outDir": "dist", "rootDir": ".",
+    "allowImportingTsExtensions": false, "rewriteRelativeImportExtensions": true
+  },
+  "include": ["mod/core/**/*.ts", "cli/**/*.ts"]
+}
