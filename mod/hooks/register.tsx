@@ -20,7 +20,7 @@ let lastWrite = 0
 let timers: Timer[] = []
 
 export async function swimtraceDir($: EngineInterface): Promise<string> {
-  const base = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? ''}/.claude`
+  const base = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${(await $.env.get('HOME')) || ''}/.claude`
   return `${base}/swimtrace`
 }
 

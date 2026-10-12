@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, realpathSync, watch, rmSync, type FSWatcher } from 'node:fs'
-import { join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { emitKeypressEvents } from 'node:readline'
 import { compileRules, parseConfig } from '../mod/core/pools.ts'
 import { fmtDuration, layout, selectableIds, type Row, type View } from '../mod/core/layout.ts'
@@ -27,6 +28,15 @@ export function sessionListRows(entries: SessionEntry[], selected: number, width
   })
   if (entries.length === 0) rows.push([{ text: '  No sessions yet. Is the swimtrace mod installed?', dim: true }])
   return rows
+}
+
+/** Wrap a callback so a throw is reported once to onError instead of escaping as uncaught. */
+export function guard<A extends unknown[]>(fn: (...a: A) => void, onError: (e: unknown) => void): (...a: A) => void {
+  return (...a: A) => { try { fn(...a) } catch (e) { onError(e) } }
+}
+
+export function canClean(root: string): boolean {
+  return isAbsolute(root) && basename(root) === 'swimtrace'
 }
 
 export async function viewer(dir: string, startInList: boolean): Promise<number> {
@@ -65,28 +75,34 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
   }
   const redrawAll = () => { prev = []; out.write('\x1b[2J'); draw() }
 
-  refresh()
-  out.write(ALT_ON + HIDE_CURSOR)
-  redrawAll()
-
   let watcher: FSWatcher | undefined
-  try { watcher = watch(dir, () => { refresh(); draw() }) } catch { /* dir may not exist yet; the poll covers it */ }
-  const poll = setInterval(() => { refresh(); draw() }, 1000)
-  out.on('resize', redrawAll)
+  let poll: NodeJS.Timeout | undefined
+  let restored = false
+  const restore = () => {
+    if (restored) return
+    restored = true
+    if (poll) clearInterval(poll)
+    try { watcher?.close() } catch { /* already closed */ }
+    try { process.stdin.setRawMode?.(false); process.stdin.pause() } catch { /* stdin gone */ }
+    out.write(SHOW_CURSOR + ALT_OFF)
+  }
 
   return await new Promise<number>(resolve => {
-    const quit = () => {
-      clearInterval(poll); watcher?.close()
-      process.stdin.setRawMode?.(false); process.stdin.pause()
-      out.write(SHOW_CURSOR + ALT_OFF)
-      resolve(0)
-    }
+    const quit = () => { restore(); resolve(0) }
+    const fail = (e: unknown) => { restore(); console.error(e); resolve(1) }
+    const tick = guard(() => { refresh(); draw() }, fail)
+    out.write(ALT_ON + HIDE_CURSOR)
+    guard(() => { refresh(); redrawAll() }, fail)()
+    if (restored) return
+    try { watcher = watch(dir, tick) } catch { /* dir may not exist yet; the poll covers it */ }
+    poll = setInterval(tick, 1000)
+    out.on('resize', guard(redrawAll, fail))
     process.on('SIGINT', quit)
     process.on('SIGTERM', quit)
     emitKeypressEvents(process.stdin)
     process.stdin.setRawMode?.(true)
     process.stdin.resume()
-    process.stdin.on('keypress', (_str: string, key: { name?: string; ctrl?: boolean; sequence?: string }) => {
+    process.stdin.on('keypress', guard((_str: string, key: { name?: string; ctrl?: boolean; sequence?: string }) => {
       const cur = entries.find(e => e.path === current)
       const ids = cur ? selectableIds(cur.snap, { view, runningOnly, rules }) : []
       const moveSel = (d: number) => {
@@ -114,7 +130,7 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
         default: return
       }
       draw()
-    })
+    }, fail))
   })
 }
 
@@ -122,7 +138,9 @@ export async function main(argv: string[]): Promise<number> {
   const [cmd, arg] = argv
   const root = swimtraceDir()
   if (cmd === '--help' || cmd === '-h') { console.log(HELP); return 0 }
-  if (cmd === 'clean') { rmSync(root, { recursive: true, force: true }); console.log(`removed ${root}`); return 0 }
+  if (cmd === 'clean') {
+    if (!canClean(root)) { console.error(`refusing to delete "${root}": not an absolute path ending in swimtrace`); return 1 }
+    rmSync(root, { recursive: true, force: true }); console.log(`removed ${root}`); return 0 }
   if (cmd === 'sim') {
     const speedAt = argv.indexOf('--speed')
     const speed = speedAt > 0 ? Number(argv[speedAt + 1]) : 1
@@ -135,7 +153,11 @@ export async function main(argv: string[]): Promise<number> {
   return viewer(join(root, 'sessions'), cmd === '--all')
 }
 
+function isEntry(): boolean {
+  try { return realpathSync(process.argv[1]!) === fileURLToPath(import.meta.url) } catch { return false }
+}
+
 // argv[1] is the npm bin symlink after a global install; compare real paths
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (isEntry()) {
   main(process.argv.slice(2)).then(code => process.exit(code), err => { process.stdout.write(SHOW_CURSOR + ALT_OFF); console.error(err); process.exit(1) })
 }
