@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { emptySnapshot } from '../../mod/core/model.ts'
 import { reduceAll } from '../../mod/core/reducer.ts'
 import { compileRules } from '../../mod/core/pools.ts'
-import { fmtDuration, isStale, lanes, layout, rowText, selectableIds, type LayoutOpts } from '../../mod/core/layout.ts'
+import { cellWidth, fmtDuration, isStale, lanes, layout, rowText, selectableIds, type LayoutOpts } from '../../mod/core/layout.ts'
 
 const snap = (evs: object[], simulated = false) =>
   reduceAll(emptySnapshot({ id: 'sess-123456789', project: '/w/c4k-mobile', startedAt: 0 }, simulated), evs)
@@ -117,4 +117,31 @@ test('height limit keeps header and footer and says how many rows were cut', () 
   assert.match(t[0]!, /SWIMTRACE/)
   assert.match(t.at(-2)!, /… \d+ more rows/)
   assert.match(t.at(-1)!, /Running/)
+})
+
+test('cellWidth counts terminal cells', () => {
+  assert.equal(cellWidth('ab'), 2)
+  assert.equal(cellWidth('漢字'), 4)
+  assert.equal(cellWidth('é'), 1)
+  assert.equal(cellWidth('🚀'), 2)
+})
+
+test('wide characters are clipped by cells without splitting surrogate pairs', () => {
+  const s = snap([spawn('w', 0, { description: '漢'.repeat(200) + '🚀' })])
+  for (const width of [30, 60, 100]) {
+    for (const r of layout(s, opts({ width }))) {
+      const tx = rowText(r)
+      assert.ok(cellWidth(tx) <= width, `row too wide at ${width}`)
+      assert.equal([...tx].join(''), tx)
+      assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(tx))
+    }
+  }
+})
+
+test('control characters are stripped from every row', () => {
+  const mk = (d: string, subj: string) => snap([spawn('e', 0, { description: d }), { kind: 'taskCreate', id: '1', subject: subj }])
+  const dirty = text(layout(mk('evil\n\x1b[2Jline', 'a\tb'), opts()))
+  const clean = text(layout(mk('evil line', 'a b'), opts()))
+  assert.equal(dirty.length, clean.length)
+  for (const l of dirty) assert.ok(!/[\n\x1b\t]/.test(l))
 })

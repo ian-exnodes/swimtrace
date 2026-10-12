@@ -75,14 +75,43 @@ export function selectableIds(s: Snapshot, o: LaneOpts): string[] {
 const label = (a: Agent) => a.name ?? (a.id === 'main' ? 'main' : a.type === a.description ? a.type : a.description || a.type)
 const dur = (a: Agent, now: number) => fmtDuration((a.endedAt ?? now) - a.startedAt)
 
+const RANGES_ZERO: [number, number][] = [[0x300, 0x36f], [0x200b, 0x200f], [0xfe00, 0xfe0f], [0x20d0, 0x20ff]]
+const RANGES_WIDE: [number, number][] = [
+  [0x1100, 0x115f], [0x2e80, 0xa4cf], [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe30, 0xfe4f],
+  [0xff00, 0xff60], [0xffe0, 0xffe6], [0x1f300, 0x1faff], [0x20000, 0x3fffd],
+]
+const inRanges = (c: number, rs: [number, number][]) => rs.some(([a, b]) => c >= a && c <= b)
+const charWidth = (ch: string): number => {
+  const c = ch.codePointAt(0)!
+  return inRanges(c, RANGES_ZERO) ? 0 : inRanges(c, RANGES_WIDE) ? 2 : 1
+}
+export function cellWidth(text: string): number {
+  let n = 0
+  for (const ch of text) n += charWidth(ch)
+  return n
+}
+/** Longest prefix of `text` that fits in `cells` terminal cells, cut on whole code points. */
+function cut(text: string, cells: number): string {
+  let out = ''
+  let used = 0
+  for (const ch of text) {
+    const w = charWidth(ch)
+    if (used + w > cells) break
+    out += ch
+    used += w
+  }
+  return out
+}
+
 function clip(row: Row, width: number): Row {
   const out: Row = []
   let left = width
   for (const g of row) {
     if (left <= 0) break
-    const t = g.text.length > left ? g.text.slice(0, left) : g.text
+    const clean = g.text.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')
+    const t = cellWidth(clean) > left ? cut(clean, left) : clean
     out.push({ ...g, text: t })
-    left -= t.length
+    left -= cellWidth(t)
   }
   return out
 }
@@ -101,10 +130,11 @@ function timelineRows(lane: Lane, o: LayoutOpts, t0: number, span: number): Row[
   const x = (t: number) => Math.max(0, Math.min(w - 1, Math.floor(((t - t0) / span) * (w - 1))))
   const tracks: { until: number; items: { col: number; segs: Seg[] }[] }[] = []
   for (const a of lane.agents) {
-    const bar = `[${label(a)} ${GLYPH[a.status]} ${dur(a, o.now)}]`.slice(0, w)
-    const col = Math.min(x(Math.max(a.startedAt, t0)), w - bar.length)
-    const endCol = Math.max(col + bar.length, x(a.endedAt ?? o.now) + 1)
-    const tail = '─'.repeat(Math.max(0, endCol - col - bar.length))
+    const bar = cut(`[${label(a)} ${GLYPH[a.status]} ${dur(a, o.now)}]`, w)
+    const barW = cellWidth(bar)
+    const col = Math.min(x(Math.max(a.startedAt, t0)), w - barW)
+    const endCol = Math.max(col + barW, x(a.endedAt ?? o.now) + 1)
+    const tail = '─'.repeat(Math.max(0, endCol - col - barW))
     const segs: Seg[] = [{ text: bar, fg: COLOR[a.status], inverse: a.id === o.selectedId }, { text: tail, fg: COLOR[a.status], dim: true }]
     let track = tracks.find(tr => tr.until < col)
     if (!track) { track = { until: -1, items: [] }; tracks.push(track) }
@@ -117,7 +147,7 @@ function timelineRows(lane: Lane, o: LayoutOpts, t0: number, span: number): Row[
     for (const it of tr.items) {
       if (it.col > at) row.push({ text: ' '.repeat(it.col - at) })
       row.push(...it.segs)
-      at = it.col + it.segs.reduce((n, g) => n + g.text.length, 0)
+      at = it.col + it.segs.reduce((n, g) => n + cellWidth(g.text), 0)
     }
     return row
   })
