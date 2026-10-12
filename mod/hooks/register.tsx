@@ -3,7 +3,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import { DEFAULT_STALE_WORKFLOW_MS, emptySnapshot, type Snapshot } from '../core/model.ts'
 import { reduceAll, type Event } from '../core/reducer.ts'
 import { compileRules, DEFAULT_CONFIG, parseConfig } from '../core/pools.ts'
-import { layout, selectableIds, type Row } from '../core/layout.ts'
+import { cellWidth, layout, selectableIds, type Row } from '../core/layout.ts'
 import type { SwimtraceUi } from '../types'
 import { listEvents, spawnEvent, toolEvents, turnEndEvent } from './events.ts'
 
@@ -67,10 +67,28 @@ async function loadSnapshot($: EngineInterface, path: string): Promise<Snapshot 
   return ok ? s : undefined
 }
 
-// The snapshot the pane shows: this session's, or the file `pick` names (this session's again if it is gone).
+// The snapshot the pane's handlers act on: this session's, or the file `pick` names (this session's again if it is gone).
 async function viewed($: EngineInterface, pick: string | undefined): Promise<Snapshot | undefined> {
   const own = await read($, snap)
   return pick === undefined ? own : ((await loadSnapshot($, pick)) ?? own)
+}
+
+// selectableIds over a snapshot from another session's file, which may hold malformed entries: this session's instead.
+async function idsOf($: EngineInterface, s: Snapshot, o: Parameters<typeof selectableIds>[1]): Promise<string[]> {
+  try { return selectableIds(s, o) } catch {
+    const own = await read($, snap)
+    return own === undefined || own === s ? [] : selectableIds(own, o)
+  }
+}
+
+// One line of text for the pane, as layout's own rows are: control characters blanked, clipped to `width` cells.
+function fit(text: string, width: number): string {
+  let out = ''
+  for (const ch of text.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')) {
+    if (cellWidth(out + ch) > width) break
+    out += ch
+  }
+  return out
 }
 
 async function writeSnapshot($: EngineInterface, force: boolean): Promise<void> {
@@ -162,6 +180,7 @@ export const register: Register = on => {
     const text = await $.fs.read(`${await swimtraceDir($)}/config.json`).then(t => (typeof t === 'string' ? t : undefined), () => undefined)
     const parsed = parseConfig(text)
     await update($, config, () => parsed.config)
+    await update($, ui, x => (x.pick === undefined ? x : { ...x, pick: undefined, selectedId: undefined })) // reopening starts at this session
     const opened = await $.ui.open({ id: PANE, title: 'SwimTrace' })
     const notes = [
       ...(opened.isPlaced ? [] : [`not shown yet: ${opened.reason}`]),
@@ -173,26 +192,41 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const u = await read($, ui)
-    const s = await viewed($, u.pick)
-    if (s === undefined) return <Text dimColor>SwimTrace: no session yet.</Text>
+    const own = await read($, snap)
+    const picked = u.pick === undefined ? undefined : await loadSnapshot($, u.pick)
     const { rules } = compileRules((await read($, config)).rules)
     const now = await $.clock.now()
     const room = e.props.scroll?.bodyRows ?? (e.viewport?.rows ?? 30) - 4
-    const rows: Row[] = layout(s, {
-      width: e.props.bodyColumns, height: Math.max(8, room - 1), now, view: u.view, runningOnly: u.runningOnly,
+    const opts = (height: number) => ({
+      width: e.props.bodyColumns, height, now, view: u.view, runningOnly: u.runningOnly,
       selectedId: u.selectedId, expanded: u.expanded, rules,
     })
+    // A file another session wrote may be malformed past loadSnapshot's shape check; a pane whose hook throws is
+    // closed, buttons and all, so a bad file draws this session's snapshot under a note instead.
+    let rows: Row[] | undefined
+    let note: Row | undefined
+    if (picked !== undefined) {
+      try { rows = layout(picked, opts(Math.max(8, room - 1))) } catch { rows = undefined }
+    }
+    if (rows === undefined) {
+      if (u.pick !== undefined) note = [{ text: fit(`swimtrace: other session unreadable (${u.pick.split('/').at(-1) ?? u.pick})`, e.props.bodyColumns), dim: true }]
+      if (own === undefined) return <Text dimColor>SwimTrace: no session yet.</Text>
+      rows = layout(own, opts(Math.max(8, room - (note ? 2 : 1))))
+    }
+    if (note) rows = [note, ...rows]
 
     // Handlers read the state as it stands at the press, never what this drawing captured.
     const move = async (d: 1 | -1) => {
-      const cur = await viewed($, (await read($, ui)).pick)
+      const at = await read($, ui)
+      const cur = await viewed($, at.pick)
       if (cur === undefined) return
       const { rules: live } = compileRules((await read($, config)).rules)
+      const ids = await idsOf($, cur, { view: at.view, runningOnly: at.runningOnly, rules: live })
       await update($, ui, x => {
-        const ids = selectableIds(cur, { view: x.view, runningOnly: x.runningOnly, rules: live })
+        if (x.view !== at.view || x.runningOnly !== at.runningOnly || x.pick !== at.pick) return x // the list changed since the press
         const i = ids.indexOf(x.selectedId ?? '')
-        const at = i < 0 ? (d > 0 ? 0 : ids.length - 1) : Math.max(0, Math.min(ids.length - 1, i + d))
-        return { ...x, selectedId: ids[at] }
+        const to = i < 0 ? (d > 0 ? 0 : ids.length - 1) : Math.max(0, Math.min(ids.length - 1, i + d))
+        return { ...x, selectedId: ids[to] }
       })
     }
     const cycle = async () => {
@@ -214,7 +248,7 @@ export const register: Register = on => {
             ))}
           </Box>
         ))}
-        <Box flexDirection="row" gap={2}>
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
           <Button key="view" hotkey="g" plain onPress={() => update($, ui, (x): SwimtraceUi => ({ ...x, view: x.view === 'pool' ? 'agent' : 'pool' }))}>{u.view === 'pool' ? 'agents' : 'pools'}</Button>
           <Button key="running" hotkey="r" plain onPress={() => update($, ui, x => ({ ...x, runningOnly: !x.runningOnly }))}>{u.runningOnly ? 'all' : 'running'}</Button>
           <Button key="next" hotkey="j" plain onPress={() => move(1)}>next</Button>

@@ -104,3 +104,51 @@ test('n cycles through other sessions\' files, newest first, then back to this o
   expect(await header()).toContain('proj  session s')
   await ui.unmount()
 })
+
+const DIR = '/h/.claude/swimtrace/sessions'
+const sessionFile = (id: string, project: string, agents: unknown[] = []) => JSON.stringify({
+  v: 1, simulated: false, session: { id, project, startedAt: 1_000 }, writtenAt: 9_000, agents, tasks: [], workflows: {},
+  folded: { completed: 0, failed: 0, interrupted: 0, killed: 0, unknown: 0 },
+})
+const fileEntry = (name: string, mtimeMs: number) => ({ name, kind: 'file' as const, size: 1, mtimeMs, isLink: false })
+
+test('an unreadable other-session file draws this session with a note, keeps the buttons, and /swimtrace resets the pick', async ($, on) => {
+  await boot($, on, 'terminal', () => {
+    on('fs.list', () => ({ value: [fileEntry('bad.json', 8_000)] }))
+    on('ui.open', () => ({ value: { isPlaced: true } }))
+  }, { [`${DIR}/bad.json`]: sessionFile('bad-sess', '/w/bad', [null]) })
+  const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'session' })
+  expect(await ui.find({ type: 'Text', text: /swimtrace: other session unreadable \(bad\.json\)/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /SWIMTRACE/ })) !== undefined).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /Explore · type/ })).toBeDefined() // this session's lanes
+  expect(await ui.find({ type: 'Button', key: 'session' })).toBeDefined()
+  await ui.press({ key: 'next' }) // handlers survive the bad file too
+  await $.command.run({ command: 'swimtrace', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  expect(await ui.find({ type: 'Text', text: /unreadable/ })).toBeUndefined()
+  await ui.press({ key: 'session' }) // still pressable: picks the bad file again
+  expect(await ui.find({ type: 'Text', text: /unreadable/ })).toBeDefined()
+  await ui.press({ key: 'session' }) // and back to this session
+  expect(await ui.find({ type: 'Text', text: /unreadable/ })).toBeUndefined()
+  await ui.press({ key: 'session' })
+  await ui.redraw({ ...PANE.props, bodyColumns: 20 })
+  expect((await ui.find({ type: 'Text', text: /^swimtrace: other/ }))?.text).toBe('swimtrace: other ses') // clipped to the body
+  await ui.unmount()
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`a 40-column pane wraps its buttons and every one still works on ${surface}`, async ($, on) => {
+    await boot($, on, surface, () => {
+      on('fs.list', () => ({ value: [fileEntry('other.json', 8_000)] }))
+    }, { [`${DIR}/other.json`]: sessionFile('other-sess', '/w/other') })
+    const ui = await $.ui.mount({ plugin: 'swimtrace', surface, ...PANE, props: { ...PANE.props, bodyColumns: 40 } })
+    // The kit lays nothing out (it never paints), so the wrap is asserted on the tree the surface gets.
+    expect(JSON.stringify(await ui.drawn())).toContain('"flexWrap":"wrap"')
+    await ui.press({ key: 'next' })
+    await ui.press({ key: 'details' })
+    expect(await ui.find({ type: 'Text', text: /^id main / })).toBeDefined()
+    await ui.press({ key: 'session' })
+    expect(await ui.find({ type: 'Text', text: /session other-se/ })).toBeDefined()
+    await ui.unmount()
+  })
+}
