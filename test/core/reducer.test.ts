@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { emptySnapshot } from '../../mod/core/model.ts'
+import { emptySnapshot, MAX_FINISHED } from '../../mod/core/model.ts'
 import { reduce, reduceAll } from '../../mod/core/reducer.ts'
 
 const S = () => emptySnapshot({ id: 's1', project: '/p', startedAt: 0 })
@@ -132,4 +132,49 @@ test('isEvent rejects unknown kinds and out-of-range enum values', () => {
     { kind: 'listStatus', at: 1, agentId: 'x', status: 'bogus', type: 'T', description: 'd' },
   ]
   for (const ev of bad) assert.equal(reduce(s, ev), s)
+})
+
+test('tasks: create, update status, add blockers, delete', () => {
+  let s = reduceAll(S(), [
+    { kind: 'taskCreate', id: '1', subject: 'Plan' },
+    { kind: 'taskCreate', id: '2', subject: 'Build' },
+    { kind: 'taskUpdate', id: '2', status: 'in_progress', addBlockedBy: ['1'] },
+    { kind: 'taskUpdate', id: '2', addBlockedBy: ['1', '3'] },
+  ])
+  assert.deepEqual(s.tasks.find(t => t.id === '2'), { id: '2', subject: 'Build', status: 'in_progress', blockedBy: ['1', '3'] })
+  s = reduce(s, { kind: 'taskUpdate', id: '1', status: 'deleted' })
+  assert.deepEqual(s.tasks.map(t => t.id), ['2'])
+})
+
+test('taskUpdate for an unseen task creates it', () => {
+  const s = reduce(S(), { kind: 'taskUpdate', id: '9', status: 'completed' })
+  assert.deepEqual(s.tasks, [{ id: '9', subject: '9', status: 'completed', blockedBy: [] }])
+})
+
+test('workflow names are recorded by run id', () => {
+  const s = reduce(S(), { kind: 'workflowName', runId: 'wf_1', name: 'review-changes' })
+  assert.equal(s.workflows.wf_1, 'review-changes')
+})
+
+test('case 8: malformed events are dropped, duplicates ignored', () => {
+  const s0 = reduce(S(), spawn('a', 1))
+  for (const bad of [null, 42, 'x', {}, { kind: 'nope' }, { kind: 'spawn', id: 'b' }, { kind: 'runEnd', at: NaN, agentId: 'a', reason: 'answer' }, { kind: 'runEnd', at: 1, agentId: 'a', reason: 'weird' }]) {
+    assert.equal(reduce(s0, bad), s0)
+  }
+  const dup = reduce(s0, spawn('a', 99, { type: 'Other' }))
+  assert.equal(dup.agents.find(a => a.id === 'a')!.type, 'Explore')
+})
+
+test('more than MAX_FINISHED finished agents fold the oldest into counters', () => {
+  const evs: object[] = []
+  for (let i = 0; i < MAX_FINISHED + 5; i++) {
+    evs.push(spawn(`a${i}`, i), { kind: 'runEnd', at: i + 1, agentId: `a${i}`, reason: i % 2 ? 'error' : 'answer' })
+  }
+  evs.push(spawn('live', 1000))
+  const s = reduceAll(S(), evs)
+  const finished = s.agents.filter(a => a.status !== 'running' && a.status !== 'waiting')
+  assert.equal(finished.length, MAX_FINISHED)
+  assert.equal(s.folded.completed + s.folded.failed, 5)
+  assert.ok(s.agents.some(a => a.id === 'live'))
+  assert.ok(!s.agents.some(a => a.id === 'a0'))
 })

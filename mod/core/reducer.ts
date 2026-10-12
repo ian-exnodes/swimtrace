@@ -42,8 +42,11 @@ export function isEvent(x: unknown): x is Event {
   const typesOk = Object.entries(REQUIRED[kind]).every(([k, t]) => typeof ev[k] === t && (t !== 'number' || Number.isFinite(ev[k])))
   if (!typesOk) return false
   const enums = ENUMS[kind]
-  if (enums === undefined) return true
-  return Object.entries(enums).every(([k, allowed]) => ev[k] === undefined || allowed.includes(ev[k] as string))
+  if (enums !== undefined && !Object.entries(enums).every(([k, allowed]) => ev[k] === undefined || allowed.includes(ev[k] as string))) return false
+  if (kind === 'taskUpdate' && ev.addBlockedBy !== undefined) {
+    if (!Array.isArray(ev.addBlockedBy) || !ev.addBlockedBy.every(x => typeof x === 'string')) return false
+  }
+  return true
 }
 
 const END_STATUS: Record<'answer' | 'aborted' | 'refusal' | 'error', Status> = {
@@ -110,6 +113,22 @@ function apply(s: Snapshot, ev: Event): Snapshot {
         }
       })
     }
+    case 'taskCreate':
+      if (s.tasks.some(t => t.id === ev.id)) return s
+      return { ...s, tasks: [...s.tasks, { id: ev.id, subject: ev.subject, status: 'pending', blockedBy: [] }] }
+    case 'taskUpdate': {
+      if (ev.status === 'deleted') return { ...s, tasks: s.tasks.filter(t => t.id !== ev.id) }
+      const base = s.tasks.find(t => t.id === ev.id) ?? { id: ev.id, subject: ev.id, status: 'pending' as TaskStatus, blockedBy: [] }
+      const next = {
+        ...base,
+        subject: ev.subject ?? base.subject,
+        status: ev.status ?? base.status,
+        blockedBy: [...new Set([...base.blockedBy, ...(ev.addBlockedBy ?? [])])],
+      }
+      return { ...s, tasks: s.tasks.some(t => t.id === ev.id) ? s.tasks.map(t => (t.id === ev.id ? next : t)) : [...s.tasks, next] }
+    }
+    case 'workflowName':
+      return { ...s, workflows: { ...s.workflows, [ev.runId]: ev.name } }
     case 'sessionEnd':
       return {
         ...s,
@@ -135,9 +154,20 @@ function apply(s: Snapshot, ev: Event): Snapshot {
 
 const listEnd = (st: ListStatus): Status => (st === 'killed' ? 'killed' : st === 'failed' ? 'failed' : 'completed')
 
+function fold(s: Snapshot): Snapshot {
+  const finished = s.agents.filter(a => !isLive(a.status))
+  const extra = finished.length - MAX_FINISHED
+  if (extra <= 0) return s
+  const drop = new Set(finished.sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0)).slice(0, extra).map(a => a.id))
+  const folded = { ...s.folded }
+  for (const a of s.agents) if (drop.has(a.id)) folded[a.status as keyof typeof folded] += 1
+  return { ...s, agents: s.agents.filter(a => !drop.has(a.id)), folded }
+}
+
 export function reduce(s: Snapshot, ev: unknown): Snapshot {
   if (!isEvent(ev)) return s
-  return apply(s, ev)
+  const next = apply(s, ev)
+  return next === s ? s : fold(next)
 }
 
 export function reduceAll(s: Snapshot, evs: readonly unknown[]): Snapshot {
