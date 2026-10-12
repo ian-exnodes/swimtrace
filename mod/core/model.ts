@@ -17,6 +17,8 @@ export interface Agent {
   endReason?: EndReason
   currentTool?: string // tool NAME only
   lastSeenAt: number
+  model?: string // from the spawn result
+  tools?: string[] // distinct tool NAMES in first-use order, at most MAX_TOOLS
 }
 
 export interface Task { id: string; subject: string; status: TaskStatus; blockedBy: string[] }
@@ -37,6 +39,7 @@ export interface Snapshot {
 }
 
 export const MAX_FINISHED = 200
+export const MAX_TOOLS = 20
 export const STALE_SESSION_MS = 15_000
 export const DEFAULT_STALE_WORKFLOW_MS = 600_000
 

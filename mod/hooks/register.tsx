@@ -13,7 +13,7 @@ import { listEvents, spawnEvent, toolCallEvent, toolResultEvents, turnEndEvent }
 const THEME: Record<Fg, ThemeKey> = { green: 'success', red: 'error', yellow: 'warning', cyan: 'suggestion', magenta: 'merged', gray: 'inactive' }
 const snap = atom({ plugin: 'swimtrace', key: 'snap' } as const, undefined as Snapshot | undefined)
 const config = atom({ plugin: 'swimtrace', key: 'config' } as const, DEFAULT_CONFIG)
-const ui = atom({ plugin: 'swimtrace', key: 'ui' } as const, { view: 'pool', runningOnly: false, expanded: false } as SwimtraceUi)
+const ui = atom({ plugin: 'swimtrace', key: 'ui' } as const, { view: 'agent', runningOnly: false, expanded: false } as SwimtraceUi)
 
 // ponytail: module variables reset on hot reload; the next timer tick rewrites the file anyway
 let dirty = true
@@ -157,7 +157,7 @@ export const register: Register = on => {
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
     await safe(async () => {
-      if (r.agentId) await apply($, [spawnEvent(e, r.agentId, await $.clock.now())])
+      if (r.agentId) await apply($, [spawnEvent(e, r.agentId, await $.clock.now(), r.model)])
     })
     return r
   })
@@ -275,7 +275,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column">
           <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-            <Button key="view" hotkey="g" plain onPress={() => update($, ui, (x): SwimtraceUi => ({ ...x, view: x.view === 'pool' ? 'agent' : 'pool' }))}>{u.view === 'pool' ? 'agents' : 'pools'}</Button>
+            <Button key="view" hotkey="g" plain onPress={() => update($, ui, (x): SwimtraceUi => ({ ...x, view: x.view === 'agent' ? 'pool' : 'agent' }))}>{u.view === 'agent' ? 'pools' : 'flow'}</Button>
             <Button key="running" hotkey="r" plain onPress={() => update($, ui, x => ({ ...x, runningOnly: !x.runningOnly }))}>{u.runningOnly ? 'all' : 'running'}</Button>
             <Button key="next" hotkey="j" plain onPress={() => move(1)}>next</Button>
             <Button key="prev" hotkey="k" plain onPress={() => move(-1)}>prev</Button>

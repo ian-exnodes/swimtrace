@@ -18,6 +18,8 @@ export interface SwimtraceAgent {
   endReason?: SwimtraceEndReason
   currentTool?: string
   lastSeenAt: number
+  model?: string
+  tools?: string[]
 }
 
 export interface SwimtraceTask { id: string; subject: string; status: SwimtraceTaskStatus; blockedBy: string[] }

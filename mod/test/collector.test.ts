@@ -52,6 +52,8 @@ test('spawn → tool call → end of run is recorded; results pass through uncha
   const a = s.agents.find((x: any) => x.id === 'a1')
   expect(a.status).toBe('completed')
   expect(a.description).toBe('look')
+  expect(a.model).toBe('m') // the spawn result's model
+  expect(a.tools).toEqual(['Grep']) // tool names only
   expect(JSON.stringify(s)).not.toContain('SECRET')
 })
 

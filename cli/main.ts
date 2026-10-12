@@ -8,14 +8,14 @@ import { clip, fmtDuration, layout, selectableIds, type Row, type View } from '.
 import { listSessions, pickSession, pruneOld, swimtraceDir, type SessionEntry } from './snapshots.ts'
 import { ALT_OFF, ALT_ON, HIDE_CURSOR, SHOW_CURSOR, diffFrame, toAnsi } from './term.ts'
 
-const HELP = `swimtrace — swimlanes for Claude Code subagents
+const HELP = `swimtrace — live flow of Claude Code subagents
 
   swimtrace            follow the newest live session of this directory
   swimtrace --all      start at the list of all sessions
   swimtrace sim <fanout|failure|workflow|multi-session|crash> [--speed N]
   swimtrace clean      delete ~/.claude/swimtrace (snapshots, sim data, config)
 
-keys: ↑/↓ select · Enter details · g pools/agents · r running only · +/- zoom · l session list · Tab next session · q quit`
+keys: ↑/↓ select · Enter details · g flow/pools · r running only · l session list · Tab next session · q quit`
 
 export function sessionListRows(entries: SessionEntry[], selected: number, width: number): Row[] {
   const rows: Row[] = [[{ text: 'SWIMTRACE — sessions', bold: true }]]
@@ -67,11 +67,10 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
   let current: string | undefined
   let listMode = startInList
   let listSel = 0
-  let view: View = 'pool'
+  let view: View = 'agent' // the flow
   let runningOnly = false
   let expanded = false
   let selectedId: string | undefined
-  let zoomMs: number | undefined
   let prev: string[] = []
   const notes = [...parsed.warnings, ...warnings]
 
@@ -85,7 +84,7 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
     const cur = entries.find(e => e.path === current)
     let rows: Row[]
     if (listMode || cur === undefined) rows = sessionListRows(entries, listSel, width)
-    else rows = layout(cur.snap, { width, height, now: Date.now(), view, runningOnly, selectedId, expanded, zoomMs, rules })
+    else rows = layout(cur.snap, { width, height, now: Date.now(), view, runningOnly, selectedId, expanded, rules })
     if (notes.length) rows = [...rows.slice(0, height - 1), clip([{ text: `config: ${notes[0]}`, fg: 'yellow' }], width)]
     const next = rows.slice(0, height).map(toAnsi)
     out.write(diffFrame(prev, next))
@@ -135,7 +134,7 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
           if (listMode && entries[listSel]) { current = entries[listSel]!.path; listMode = false; selectedId = undefined }
           else expanded = !expanded
           break
-        case 'g': view = view === 'pool' ? 'agent' : 'pool'; break
+        case 'g': view = view === 'agent' ? 'pool' : 'agent'; break
         case 'r': runningOnly = !runningOnly; break
         case 'l': listMode = !listMode; break
         case 'tab': {
@@ -143,8 +142,6 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
           current = entries[(i + 1) % Math.max(1, entries.length)]?.path; selectedId = undefined
           break
         }
-        case '+': case '=': zoomMs = Math.max(10_000, Math.floor((zoomMs ?? 600_000) / 2)); break
-        case '-': zoomMs = zoomMs === undefined ? undefined : zoomMs * 2 > 86_400_000 ? undefined : zoomMs * 2; break
         default: return
       }
       draw()

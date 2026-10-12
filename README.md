@@ -20,19 +20,36 @@ npm i -g swimtrace        # or, from a clone: npm i -g .
 
 ## Use
 
-- In Claude Code the swimlanes appear above the prompt once a subagent runs; `/swimtrace` hides or shows them, and
-  ctrl+x ctrl+a collapses them. Keys (button hotkeys, after a click on the band or ctrl+x tab): `g` pools/agents,
-  `r` running only, `j`/`k` select, `d` details, `n` other sessions.
+- The band in Claude Code and the `swimtrace` viewer both draw the agents as a flow, left to right, one line per node:
+
+  ```
+  SWIMTRACE  proj  session e57186f5   5 agents · 1 running · 3 done · 1 failed
+
+  [● main · Bash]─┬─▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
+                  │                └─▶[✗ review:perf 42s]
+                  ├─▶[✓ list files in src 13s]
+                  └─▶[✓ count test files 10s]
+  ```
+
+  A node is `[status label · current tool duration]`. A solid arrow means who started whom. `◆` is a workflow run:
+  its agents hang off it. A dashed arrow (`─ ─▶`) is step order that SwimTrace infers from workflow labels shaped
+  `<step>:<key>` (`verify:bugs` comes after `review:bugs`). It is a guess from the labels, not something Claude Code
+  reports, and the details line says so. What one agent handed another (data flow) cannot be seen. Below 60 columns
+  the flow becomes an indented tree. `g` switches to the pools view (lanes, see below) and back.
+- In Claude Code the flow appears above the prompt once a subagent runs; `/swimtrace` hides or shows it, and
+  ctrl+x ctrl+a collapses it. Keys (button hotkeys, after a click on the band or ctrl+x tab): `g` flow/pools,
+  `r` running only, `j`/`k` select, `d` details (model and tools used, too), `n` other sessions.
 - `swimtrace` in another terminal (a tmux split works well) follows the newest live session of the current directory.
-  `swimtrace --all` starts at the session list. Keys: ↑/↓, Enter, `g`, `r`, `+`/`-` zoom, `l` list, Tab, `q`.
-  Zoom and `q` exist only in the CLI.
+  `swimtrace --all` starts at the session list. Keys: ↑/↓, Enter, `g`, `r`, `l` list, Tab, `q`.
+  `q` exists only in the CLI.
 - The band uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
 - `swimtrace sim fanout|failure|workflow|multi-session|crash [--speed N]` plays synthetic events (no tokens),
   marked `SIMULATED`. `N` must be a number greater than 0.
 
-## Lanes
+## Pools
 
-First match wins, and every lane header says where it came from:
+The pools view (`g`) groups agents into lanes, one agent per line. First match wins, and every lane header says
+where it came from:
 
 1. `config` — rules in `~/.claude/swimtrace/config.json`
 2. `explicit` — a `[pool:Name]` prefix in the Agent call's description
@@ -53,8 +70,9 @@ First match wins, and every lane header says where it came from:
 
 `match` keys: `type`, `name`, `description`, `project` (regexes; all must match). `$1`… use the capture groups of
 the first key (in that order) that has groups. Lanes are resolved when drawn, from the config at that moment,
-so editing the config re-sorts existing agents. A workflow `agent()` label becomes its description, so labels
-shaped `<step>:<key>` can be pooled by the last rule above; unlabelled workflow agents show as `agent <n>`.
+so editing the config re-sorts existing agents. A workflow `agent()` label becomes its description; the last rule
+above gives each `<step>` of a workflow its own lane in the pools view (the flow view chains the steps instead).
+Unlabelled workflow agents show as `agent <n>`.
 
 ## What it can and cannot see
 
@@ -63,7 +81,9 @@ shaped `<step>:<key>` can be pooled by the last rule above; unlabelled workflow 
 | start, end, duration, parent of every subagent | Claude Code's own agent events |
 | completed / failed / interrupted | how each agent's run ended |
 | killed, waiting | Claude Code's agent list (not for workflow agents) |
-| current tool: the one in progress (name only) | tool-call events |
+| current tool: the one in progress (name only); tools used (names, first 20) | tool-call events |
+| model | the agent's spawn result |
+| step order inside a workflow (dashed arrows) | inferred from `<step>:<key>` labels, never observed |
 | tasks: subject, status, blockers | only when the TaskCreate/TaskUpdate tools are used |
 
 Shown as text: each Agent call's short description and each task's subject (from TaskCreate/TaskUpdate). Never

@@ -91,6 +91,9 @@ Read-only clone; nothing installed or modified. The monitor does not depend on i
 | Session crashed / killed | | heartbeat staleness → `stale` | | cause |
 | Workflow run grouping | ✓ `workflow.runId` | | | |
 | Workflow `phase` / `label` per agent | ✓ label (as the spawn description) | | | phase |
+| Step order inside a workflow run | | `<step>:<key>` labels → dashed `─ ─▶` edge in the flow view (amended 2026-10-12) | | when labels do not follow the shape |
+| Data flow between agents (what one handed another) | | | | ✗ not observable: no edge is drawn |
+| Model per agent, tools used (names) | ✓ `agent.spawn` result `model`; `tool.call` names | | | |
 | Explicit pool membership | | | `[pool:Name]` description prefix | |
 | Logical pool (rules) | | ✓ config rules on type/description/name/project | | |
 | Task list and dependencies | ✓ when `TaskCreate`/`TaskUpdate` are used | | | |
@@ -151,6 +154,8 @@ interface Agent {
   endReason?: 'answer' | 'aborted' | 'refusal' | 'error' | 'killed' | 'stale' | 'session-end'
   currentTool?: string      // tool NAME only: the tool in progress (set as it starts, kept until the next one or the run's end)
   lastSeenAt: number
+  model?: string            // the agent.spawn result's model (amended 2026-10-12)
+  tools?: string[]          // distinct tool NAMES in first-use order, at most 20 (amended 2026-10-12)
 }
 
 interface Task { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed'; blockedBy: string[] }
@@ -253,36 +258,47 @@ First match wins; the lane records its source:
 Lane headers show the source (`REVIEW · config`, `Explore · type`). The agent view ignores pools
 and shows one row per agent, indented under its parent.
 
-## 7. Terminal swimlane UI
+## 7. Terminal UI: the flow view
 
-`layout(snapshot, view, { width, height, selection, now, zoom }): Row[]` — pure; a `Row` is a list
-of `{ text, fg?, bold?, dim?, inverse? }` segments. The band maps segments to `Box`/`Text`; the CLI
-maps them to ANSI.
+(Amended 2026-10-12: the user-approved flow view replaces the time-axis "pool" timeline. The timeline, its zoom and
+the footer totals are gone.)
+
+`layout(snapshot, { width, height, now, view, runningOnly, selectedId, expanded, rules }): Row[]` — pure; a `Row` is
+a list of `{ text, fg?, bold?, dim?, inverse? }` segments. The band maps segments to `Box`/`Text`; the CLI maps them
+to ANSI. `view` is `'agent'` (the flow, the default everywhere) or `'pool'` (the pools view).
 
 ```
-SWIMTRACE  project: c4k-mobile  session: 3f2a…  [SIMULATED]
-time 0s ─────────────── 1m ─────────────── 2m ──────────────▶ now
-MAIN · main
-  [main ● Agent]────────────────────────────────────────────
-REVIEW · config
-          [code-reviewer ✓ 48s]
-          [security-review ● 1m02s]
-Explore · type
-                     [Explore ✗ 12s]
-Tasks: T1 ✓ Plan · T2 ● Implement (blocks T3) · T3 ◌ Review (blocked by T2)
-Running 2 · Waiting 1 · Done 1 · Failed 1 · Unknown 0
+SWIMTRACE  proj  session e57186f5   5 agents · 1 running · 3 done · 1 failed
+
+[● main · Bash]─┬─▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
+                │                └─▶[✗ review:perf 42s]
+                ├─▶[✓ list files in src 13s]
+                └─▶[✓ count test files 10s]
 ```
 
-- Time axis fits earliest visible start → now; `+`/`-` set a fixed window.
-- Concurrent agents in one lane pack onto separate rows (interval packing) — parallelism is visible.
-- Status is glyph and colour: ● running, ◌ waiting, ✓ completed, ✗ failed, ■ interrupted/killed,
-  ? unknown.
-- Below 60 columns: compact list (lane → agent, status, duration), no timeline.
+- Header: project basename, short session id, `SIMULATED`/`STALE`/`ENDED` markers, then a dim summary
+  `N agents · R running · D done · F failed`, with `· W waiting`, `· S stopped` (interrupted + killed) and
+  `· U unknown` only when non-zero. Subagents only, folded counters included.
+- Agent node: `[<glyph> <label>[ · <current tool>] <duration>]`, coloured by status, inverse when selected; the tool
+  only while running. Main is `[● main · Bash]` / `[◌ main]`, no duration. Status glyphs: ● running, ◌ waiting,
+  ✓ completed, ✗ failed, ■ interrupted/killed, ? unknown.
+- Solid edges: parent → child (`parentAgentId` when that agent is shown, else main), children in start order. The
+  children of a node start 4 cells after it: `───▶` for one, `─┬─▶` / `├─▶` / `└─▶` with `│` between for several.
+- Workflow node `[◆ <workflow name or run id>]`, bold, not selectable: a parent's agents sharing a `workflowRunId`
+  hang off one such node, placed where its earliest agent would be.
+- Dashed edge `─ ─▶`, same row: inside a workflow node, labels shaped `<step>:<key>` give steps ordered by first
+  start; an agent of step i > 0 follows the earliest not-yet-followed agent of step i − 1 with the same key that
+  started no later than it. Inferred from labels only (details say so: `after <label> (step order inferred from
+  labels)`); data flow is never drawn. Anything else is a plain child of the workflow node.
+- Below 60 columns: an indented tree, one node per line (`├▶ ` / `└▶ `, a chained agent as its predecessor's `┄▶ `
+  child). Rows are clipped to the width with a trailing `…`; too many rows end in `… n more rows`.
+- Pools view: one lane per pool (§6), header `NAME · source`, then its agents one per line.
+- Selection walks the drawn order (row by row, left to right; workflow nodes skipped), the same in both widths.
 - Tasks strip only when Task tools were used; "pending" appears only there.
-- Keys: ↑/↓ select · Enter details (id, parent, type, pool + source, current tool, start/end, end
-  reason) · `g` pool/agent view · `r` running only · `+`/`-` zoom · Tab next session (CLI) · `q`
-  quit (CLI). In the band the keys are button hotkeys: `g` pools/agents, `r` running only, `j`/`k` select,
-  `d` details, `n` other sessions. Zoom and `q` are CLI-only.
+- Keys: ↑/↓ select · Enter details (id, parent, type, pool + source, current tool, start/end, end reason, model,
+  tools used, inferred predecessor) · `g` flow/pools · `r` running only · Tab next session (CLI) · `q` quit (CLI).
+  In the band the keys are button hotkeys: `g` flow/pools, `r` running only, `j`/`k` select, `d` details,
+  `n` other sessions. `q` is CLI-only.
 
 **Band:** drawn above the prompt once this session has a subagent (or another session is picked), at most
 half the terminal's rows (it scrolls past that); it passes while a survey holds the band. `/swimtrace` hides or
@@ -339,7 +355,7 @@ No step reads or writes `settings.json`, project files, or existing hooks.
 | 6 | Multiple sessions | CLI snapshot aggregation test |
 | 7 | Unexpected termination | staleness test with injected `now` |
 | 8 | Malformed events / snapshots | reducer drop/dedupe tests; CLI parse tests |
-| 9 | Terminal resize | layout at 40 / 80 / 200 columns (compact vs timeline) |
+| 9 | Terminal resize | layout at 40 / 80 / 200 columns (indented tree vs flow) |
 | 10 | Monitor restart | CLI rebuild from files; `claude plugin test` state survives reload |
 
 Mod tests (`claude plugin test`): spawn → tool.call → turn.complete through the hooks; band mounts

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { canClean, guard, safeToClean, sessionListRows } from '../../cli/main.ts'
+import { canClean, guard, main, safeToClean, sessionListRows } from '../../cli/main.ts'
 import { swimtraceDir } from '../../cli/snapshots.ts'
 import { emptySnapshot } from '../../mod/core/model.ts'
 import { cellWidth, rowText } from '../../mod/core/layout.ts'
@@ -53,4 +53,13 @@ test('final fix 6: clean deletes only a swimtrace folder holding nothing but its
     assert.match(r.ok ? '' : r.why, /README\.md/)
     assert.equal(safeToClean(join(base, 'other')).ok, false)
   } finally { rmSync(base, { recursive: true, force: true }) }
+})
+
+test('flow: --help names the flow/pools toggle and no zoom', async () => {
+  const log = console.log
+  let out = ''
+  console.log = (x: unknown) => { out += String(x) }
+  try { assert.equal(await main(['--help']), 0) } finally { console.log = log }
+  assert.match(out, /g flow\/pools/)
+  assert.doesNotMatch(out, /zoom|\+\/-/)
 })

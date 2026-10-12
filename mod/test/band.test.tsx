@@ -27,14 +27,21 @@ async function boot($: any, on: any, surface: 'terminal' | 'desktop', hooks: () 
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`the band draws lanes and toggles the agent view on ${surface}`, async ($, on) => {
+  test(`the band draws the flow and toggles the pools view on ${surface}`, async ($, on) => {
     await boot($, on, surface)
     const ui = await $.ui.mount({ plugin: 'swimtrace', surface, ...BAND })
     expect(await ui.find({ type: 'Text', text: /SWIMTRACE/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /1 agent · 1 running/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\[● scan repo 0s\]$/ })).toBeDefined() // the flow is the default
+    expect(await ui.find({ type: 'Text', text: /^───▶$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Explore · type/ })).toBeUndefined()
+    expect((await ui.find({ type: 'Button', key: 'view' }))?.text).toBe('pools')
+    await ui.press({ key: 'view' })
     expect(await ui.find({ type: 'Text', text: /Explore · type/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /scan repo/ })).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: 'view' }))?.text).toBe('flow')
     await ui.press({ key: 'view' })
     expect(await ui.find({ type: 'Text', text: /Explore · type/ })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /scan repo/ })).toBeDefined()
     await ui.unmount()
   })
 }
@@ -76,7 +83,7 @@ test('the band passes while there are no subagents, and while a survey holds it'
 test('band colors are theme keys, never raw ANSI names', async ($, on) => {
   await boot($, on, 'terminal')
   const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...BAND })
-  const bar = await ui.find({ type: 'Text', text: /^\[scan repo ●/ })
+  const bar = await ui.find({ type: 'Text', text: /^\[● scan repo/ })
   expect(bar?.props.color).toBe('suggestion')
   const colors = (await ui.findAll({ type: 'Text' })).map(t => t.props.color).filter(c => c !== undefined)
   expect(colors.length).toBeGreaterThan(0)
@@ -84,14 +91,14 @@ test('band colors are theme keys, never raw ANSI names', async ($, on) => {
   await ui.unmount()
 })
 
-test('j and k walk the selection in lane order; d shows the selected agent', async ($, on) => {
+test('j and k walk the selection in drawn order; d shows the selected agent', async ($, on) => {
   await boot($, on, 'terminal')
   const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...BAND })
   const detail = async () => (await ui.find({ type: 'Text', text: /^id \S+ / }))?.text.split(' ')[1]
   await ui.press({ key: 'details' })
   expect(await detail()).toBeUndefined() // nothing selected yet
   await ui.press({ key: 'next' })
-  expect(await detail()).toBe('main') // MAIN lane first
+  expect(await detail()).toBe('main') // main is the flow's first node
   await ui.press({ key: 'next' })
   expect(await detail()).toBe('a1')
   await ui.press({ key: 'next' }) // at the end: stays
@@ -101,7 +108,7 @@ test('j and k walk the selection in lane order; d shows the selected agent', asy
   await ui.unmount()
 })
 
-test('the 1 s tick redraws only while the band has lanes to show', async ($, on) => {
+test('the 1 s tick redraws only while the band has agents to show', async ($, on) => {
   let redraws = 0
   const { clock } = await boot($, on, 'terminal', () => {
     on('ui.invalidate', ($: any, e: any) => { if (e === 'ui.render' || e?.event === 'ui.render') redraws++; return { value: undefined } })
@@ -154,7 +161,7 @@ test('an unreadable other-session file draws this session with a note, keeps the
   await ui.press({ key: 'session' })
   expect(await ui.find({ type: 'Text', text: /swimtrace: other session unreadable \(bad\.json\)/ })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /SWIMTRACE/ })) !== undefined).toBe(true)
-  expect(await ui.find({ type: 'Text', text: /Explore · type/ })).toBeDefined() // this session's lanes
+  expect(await ui.find({ type: 'Text', text: /^\[● scan repo/ })).toBeDefined() // this session's flow
   expect(await ui.find({ type: 'Button', key: 'session' })).toBeDefined()
   await ui.press({ key: 'next' }) // handlers survive the bad file too
   await $.command.run(RUN) // hide
@@ -193,7 +200,7 @@ test('final fix 2: the band never draws its own live session as stale, however l
   await clock.advance(20_000) // past the 15 s staleness window
   const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /STALE/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /scan repo ● 20s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\[● scan repo 20s\]$/ })).toBeDefined()
   await ui.press({ key: 'running' })
   await ui.press({ key: 'details' })
   await ui.press({ key: 'next' })
@@ -204,9 +211,10 @@ test('final fix 2: the band never draws its own live session as stale, however l
 test('a short, narrow band draws its buttons first, inside the rows it may take', async ($, on) => {
   await boot($, on, 'terminal')
   const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...BAND, props: { ...BAND.props, maxRows: 6, bodyColumns: 40 } })
+  await ui.press({ key: 'view' }) // the pools view: two lanes, more rows than the band may take (the flow is main and one agent)
   const drawn = JSON.stringify(await ui.drawn())
   expect(drawn.indexOf('"hotkey":"g"')).toBeGreaterThan(-1)
   expect(drawn.indexOf('"hotkey":"g"')).toBeLessThan(drawn.indexOf('SWIMTRACE'))
-  expect(await ui.find({ type: 'Text', text: /more rows/ })).toBeDefined() // the lanes were cut to fit, not the buttons
+  expect(await ui.find({ type: 'Text', text: /more rows/ })).toBeDefined() // the rows were cut to fit, not the buttons
   await ui.unmount()
 })

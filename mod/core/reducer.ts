@@ -1,8 +1,8 @@
 import type { Agent, ListStatus, Snapshot, Status, TaskStatus } from './model.ts'
-import { MAX_FINISHED, isLive } from './model.ts'
+import { MAX_FINISHED, MAX_TOOLS, isLive } from './model.ts'
 
 export type Event =
-  | { kind: 'spawn'; at: number; id: string; type: string; description: string; parentId?: string; name?: string; workflowRunId?: string }
+  | { kind: 'spawn'; at: number; id: string; type: string; description: string; parentId?: string; name?: string; workflowRunId?: string; model?: string }
   | { kind: 'toolCall'; at: number; agentId: string; tool: string }
   | { kind: 'runEnd'; at: number; agentId: string; reason: 'answer' | 'aborted' | 'refusal' | 'error' }
   | { kind: 'mainTurn'; at: number; phase: 'start' | 'end' }
@@ -26,6 +26,11 @@ const REQUIRED: Record<Event['kind'], Record<string, 'string' | 'number'>> = {
   tick: { at: 'number', staleWorkflowMs: 'number' },
 }
 
+// Optional fields checked by type when present.
+const OPTIONAL: Partial<Record<Event['kind'], Record<string, 'string'>>> = {
+  spawn: { model: 'string' },
+}
+
 // Allowed values for enum-like fields, checked after the type check. Optional fields may be absent.
 const ENUMS: Partial<Record<Event['kind'], Record<string, readonly string[]>>> = {
   runEnd: { reason: ['answer', 'aborted', 'refusal', 'error'] },
@@ -41,6 +46,8 @@ export function isEvent(x: unknown): x is Event {
   const kind = ev.kind as Event['kind']
   const typesOk = Object.entries(REQUIRED[kind]).every(([k, t]) => typeof ev[k] === t && (t !== 'number' || Number.isFinite(ev[k])))
   if (!typesOk) return false
+  const opt = OPTIONAL[kind]
+  if (opt !== undefined && !Object.entries(opt).every(([k, t]) => ev[k] === undefined || typeof ev[k] === t)) return false
   const enums = ENUMS[kind]
   if (enums !== undefined && !Object.entries(enums).every(([k, allowed]) => ev[k] === undefined || allowed.includes(ev[k] as string))) return false
   if (kind === 'taskUpdate' && ev.addBlockedBy !== undefined) {
@@ -56,6 +63,10 @@ const END_STATUS: Record<'answer' | 'aborted' | 'refusal' | 'error', Status> = {
 // A workflow agent the tick marked unknown for silence alone: its own toolCall or runEnd still lands.
 // Unknown for any other reason (the session ended) is final.
 const staleUnknown = (a: Agent): boolean => a.status === 'unknown' && a.endReason === 'stale'
+
+// The agent's distinct tool names, first use first, at most MAX_TOOLS.
+const withTool = (tools: string[] | undefined, t: string): string[] =>
+  tools === undefined ? [t] : tools.includes(t) || tools.length >= MAX_TOOLS ? tools : [...tools, t]
 
 // Returns `s` itself when `fn` changed nothing: the collector relies on that to skip idle writes.
 function mapAgent(s: Snapshot, id: string, fn: (a: Agent) => Agent): Snapshot {
@@ -76,17 +87,17 @@ function apply(s: Snapshot, ev: Event): Snapshot {
       if (known(ev.id)) return s // dedupe
       const a: Agent = {
         id: ev.id, parentId: ev.parentId, type: ev.type, description: ev.description, name: ev.name,
-        workflowRunId: ev.workflowRunId, status: 'running', startedAt: ev.at, lastSeenAt: ev.at,
+        workflowRunId: ev.workflowRunId, model: ev.model, status: 'running', startedAt: ev.at, lastSeenAt: ev.at,
       }
       return { ...s, agents: [...s.agents, a] }
     }
     case 'toolCall':
       if (!known(ev.agentId)) return s
       return mapAgent(s, ev.agentId, a => {
-        if (isLive(a.status)) return { ...a, currentTool: ev.tool, lastSeenAt: ev.at }
+        if (isLive(a.status)) return { ...a, currentTool: ev.tool, tools: withTool(a.tools, ev.tool), lastSeenAt: ev.at }
         if (!staleUnknown(a)) return a
         const { endedAt: _e, endReason: _r, ...rest } = a // it was only silent: back to running
-        return { ...rest, status: 'running', currentTool: ev.tool, lastSeenAt: ev.at }
+        return { ...rest, status: 'running', currentTool: ev.tool, tools: withTool(a.tools, ev.tool), lastSeenAt: ev.at }
       })
     case 'runEnd': {
       const status = END_STATUS[ev.reason]

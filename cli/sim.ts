@@ -40,12 +40,12 @@ export const SCENARIOS: Record<string, Scenario> = {
   workflow: { sessions: [{ id: 'sim-workflow', project: '/sim/project-gamma', steps: [
     { after: 0, ev: turn('start') },
     { after: 200, ev: { kind: 'workflowName', runId: 'wf_sim', name: 'review-changes' } },
-    { after: 200, ev: sp('w1', 'reviewer', 'review:correctness', { workflowRunId: 'wf_sim' }) },
-    { after: 100, ev: sp('w2', 'reviewer', 'review:security', { workflowRunId: 'wf_sim' }) },
+    { after: 200, ev: sp('w1', 'reviewer', 'review:correctness', { workflowRunId: 'wf_sim', model: 'claude-sonnet-4-5' }) },
+    { after: 100, ev: sp('w2', 'reviewer', 'review:security', { workflowRunId: 'wf_sim', model: 'claude-sonnet-4-5' }) },
     { after: 2500, ev: end('w1', 'answer') },
-    { after: 200, ev: sp('w3', 'general-purpose', 'verify:correctness', { workflowRunId: 'wf_sim' }) },
+    { after: 200, ev: sp('w3', 'general-purpose', 'verify:correctness', { workflowRunId: 'wf_sim', model: 'claude-haiku-4-5' }) },
     { after: 1500, ev: end('w2', 'answer') },
-    { after: 200, ev: sp('w4', 'general-purpose', 'verify:security', { workflowRunId: 'wf_sim' }) },
+    { after: 200, ev: sp('w4', 'general-purpose', 'verify:security', { workflowRunId: 'wf_sim', model: 'claude-haiku-4-5' }) },
     { after: 2000, ev: end('w3', 'answer') },
   ] }] },
   'multi-session': { sessions: [

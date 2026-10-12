@@ -46,3 +46,10 @@ test('a missing prompt does not throw and leaves the description unchanged', () 
   const ev = spawnEvent({ description: '[T1] x', prompt: undefined as unknown as string, subagentType: 'Explore' }, 'a1', 5)
   assert.equal(desc(ev), '[T1] x')
 })
+
+test('flow: the spawn result\'s model rides on the event; absent or empty stays absent', () => {
+  const e = { description: 'look', prompt: 'p', subagentType: 'Explore' }
+  assert.equal((spawnEvent(e, 'a1', 5, 'claude-haiku-4-5') as { model?: string }).model, 'claude-haiku-4-5')
+  assert.equal((spawnEvent(e, 'a1', 5) as { model?: string }).model, undefined)
+  assert.equal((spawnEvent(e, 'a1', 5, '') as { model?: string }).model, undefined)
+})

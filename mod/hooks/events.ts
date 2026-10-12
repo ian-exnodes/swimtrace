@@ -1,7 +1,7 @@
 import type { Event } from '../core/reducer.ts'
 import type { ListStatus } from '../core/model.ts'
 
-// Pure mapping from engine event shapes to core events. Privacy: only tool NAMES, a task's subject and a
+// Pure mapping from engine event shapes to core events. Privacy: only tool NAMES, a model name, a task's subject and a
 // workflow's name leave this file; never a prompt, a tool's input or output, or an answer.
 
 type SpawnIn = {
@@ -17,10 +17,12 @@ const derivedFromPrompt = (description: string, prompt?: string): boolean => {
   const stem = d.replace(/(…|\.\.\.)$/, '').trimEnd()
   return stem !== '' && p.startsWith(stem)
 }
-export const spawnEvent = (e: SpawnIn, agentId: string, at: number): Event => ({
+// `model` is the spawn RESULT's model (what the agent runs on), when the engine reports one.
+export const spawnEvent = (e: SpawnIn, agentId: string, at: number, model?: string): Event => ({
   kind: 'spawn', at, id: agentId, type: e.subagentType,
   description: derivedFromPrompt(e.description, e.prompt) ? (e.workflow ? `agent ${e.workflow.agentIndex}` : e.subagentType) : e.description,
   parentId: e.parentAgentId, name: e.name, workflowRunId: e.workflow?.runId || undefined,
+  model: typeof model === 'string' && model !== '' ? model : undefined,
 })
 
 type ToolIn = { tool: string; agentId?: string } & Record<string, unknown>

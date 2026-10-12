@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { emptySnapshot, MAX_FINISHED } from '../../mod/core/model.ts'
+import { emptySnapshot, MAX_FINISHED, MAX_TOOLS } from '../../mod/core/model.ts'
 import { reduce, reduceAll } from '../../mod/core/reducer.ts'
 
 const S = () => emptySnapshot({ id: 's1', project: '/p', startedAt: 0 })
@@ -68,6 +68,29 @@ test('tool calls set current tool by name and refresh lastSeenAt; unknown ids ar
   assert.equal(agent(s, 'a')!.currentTool, 'Grep')
   assert.equal(agent(s, 'a')!.lastSeenAt, 9)
   assert.equal(agent(s, 'ghost'), undefined)
+})
+
+test('flow: the spawn result\'s model is stored; tools are distinct names in first-use order, capped', () => {
+  let s = reduceAll(S(), [spawn('a', 1, { model: 'claude-sonnet-4-5' }), spawn('b', 1)])
+  assert.equal(agent(s, 'a')!.model, 'claude-sonnet-4-5')
+  assert.equal(agent(s, 'b')!.model, undefined)
+  for (const t of ['Grep', 'Read', 'Grep', 'Bash']) s = reduce(s, { kind: 'toolCall', at: 2, agentId: 'a', tool: t })
+  assert.deepEqual(agent(s, 'a')!.tools, ['Grep', 'Read', 'Bash'])
+  assert.equal(agent(s, 'a')!.currentTool, 'Bash')
+  for (let i = 0; i < MAX_TOOLS + 5; i++) s = reduce(s, { kind: 'toolCall', at: 3, agentId: 'b', tool: `T${i}` })
+  assert.equal(agent(s, 'b')!.tools!.length, MAX_TOOLS)
+  assert.equal(agent(s, 'b')!.tools!.at(-1), `T${MAX_TOOLS - 1}`)
+  assert.equal(agent(s, 'b')!.currentTool, `T${MAX_TOOLS + 4}`) // the current tool still moves past the cap
+})
+
+test('flow: a stale-unknown workflow agent that revives records its tool', () => {
+  const stale = reduceAll(S(), [spawn('w', 0, { workflowRunId: 'wf_1' }), { kind: 'tick', at: 700_000, staleWorkflowMs: 600_000 }])
+  assert.deepEqual(agent(reduce(stale, { kind: 'toolCall', at: 710_000, agentId: 'w', tool: 'Read' }), 'w')!.tools, ['Read'])
+})
+
+test('flow: a spawn with a model that is not a string is rejected', () => {
+  const s0 = S()
+  for (const model of [42, null, {}, ['m']]) assert.equal(reduce(s0, spawn('a', 1, { model })), s0)
 })
 
 test('runEnd for an unknown id is ignored (engine forks)', () => {
