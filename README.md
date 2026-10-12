@@ -24,8 +24,8 @@ npm i -g swimtrace        # or, from a clone: npm i -g .
   `r` running only, `j`/`k` select, `d` details, `n` other sessions.
 - `swimtrace` in another terminal (a tmux split works well) follows the newest live session of the current directory.
   `swimtrace --all` starts at the session list. Keys: ↑/↓, Enter, `g`, `r`, `+`/`-` zoom, `l` list, Tab, `q`.
-- The pane uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
   Zoom and `q` exist only in the CLI.
+- The pane uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
 - `swimtrace sim fanout|failure|workflow|multi-session|crash [--speed N]` plays synthetic events (no tokens),
   marked `SIMULATED`. `N` must be a number greater than 0.
 
