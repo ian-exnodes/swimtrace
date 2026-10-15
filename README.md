@@ -204,3 +204,7 @@ Claude Code 2.1.296 or newer (the mod API is early access and may change), Node 
 terminal's height and scrolls past that. Remote (cloud) agents have no local events. Local machine only.
 The viewer restores your terminal if it hits an error. If another session's file in the band is malformed, the
 band falls back to the current session and says "unreadable".
+
+## License
+
+MIT, see [LICENSE](LICENSE). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
