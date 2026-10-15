@@ -89,7 +89,7 @@ export function screen(st: ViewState, width: number, height: number): Row[] {
   if (!st.listMode && cur !== undefined && usePanes(width, height)) {
     return panes({
       flow: (w, h) => {
-        const rows = layout(cur.snap, { ...o, width: w, height: h + 1, expanded: false })
+        const rows = layout(cur.snap, { ...o, width: w, height: h + 1, expanded: false, hideMainTool: true })
         return { title: flowTitle(cur.snap, o, st.view === 'pool', w - 2), body: rows.slice(1) }
       },
       details: w => detailLines(cur.snap, { ...o, width: w, height, expanded: false }),

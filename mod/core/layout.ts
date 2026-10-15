@@ -12,6 +12,8 @@ export type View = 'pool' | 'agent'
 export interface LayoutOpts {
   width: number; height: number; now: number; view: View; runningOnly: boolean
   selectedId?: string; expanded: boolean; rules: readonly CompiledRule[]
+  /** The request node without main's current tool, so the stages row keeps its width (the CLI panes; Details shows the tool). */
+  hideMainTool?: boolean
 }
 export interface Lane { pool: Pool; agents: Agent[] }
 /** `now`, when given, lets a stale session's agents be listed as layout draws them (see `asDrawn`). */
@@ -381,7 +383,7 @@ function stageSegs(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: Lay
   const stale = current && main === 'unknown'
   const done = !live && !stale && (!latest || main === 'completed' || (t === undefined ? st.over : t.end !== undefined))
   const glyph = live ? GLYPH.running : stale ? GLYPH.unknown : done ? GLYPH.completed : '◉'
-  const tool = live && !bare && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
+  const tool = live && !bare && !o.hideMainTool && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
   const req: Seg = {
     text: `[${glyph} request${tool}]`, fg: done ? COLOR.completed : live ? COLOR.running : stale ? COLOR.unknown : main && COLOR[main],
     inverse: (latest && st.mainShown && o.selectedId === 'main') || undefined,

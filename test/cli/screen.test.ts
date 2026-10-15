@@ -152,3 +152,13 @@ test('click: an unknown or missing target changes nothing', () => {
   assert.deepEqual(applyHit('other:1', state()), {})
   assert.equal(hitAt(screen(state(), 120, 30), 0, 0), undefined) // the frame corner
 })
+
+test('panes: the Flow pane draws the request node without the tool of main; Details keeps it', () => {
+  const [s] = playInstant('orchestrated', 0, 1000) // main is calling Agent
+  const st = state({ entries: [entry(s!)], current: `/x/${s!.session.id}.json`, now: s!.writtenAt })
+  const rows = texts(screen(st, 120, 30))
+  assert.ok(rows.some(t => t.includes('[● request]')), 'request node without tool')
+  assert.ok(!rows.some(t => t.includes('request · ')))
+  assert.ok(rows.some(t => t.includes('tool    Agent')), 'Details shows main\'s tool')
+  assert.ok(texts(screen(st, 99, 30)).some(t => t.includes('request · Agent')), 'single column unchanged')
+})

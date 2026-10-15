@@ -44,11 +44,11 @@ const content = (seen: Record<string, number[]> = {}, sessionCount = 2): PaneCon
   bottom: t(' keys'),
 })
 
-test('rightWidth clamps a third of the width to 32…44', () => {
+test('rightWidth clamps a third of the width to 32…36', () => {
   assert.equal(rightWidth(100), 33)
   assert.equal(rightWidth(90), 32)
-  assert.equal(rightWidth(120), 40)
-  assert.equal(rightWidth(300), 44)
+  assert.equal(rightWidth(120), 36)
+  assert.equal(rightWidth(300), 36)
 })
 
 test('panes: exact size, shared junctions, bottom row, callback sizes', () => {
@@ -56,7 +56,7 @@ test('panes: exact size, shared junctions, bottom row, callback sizes', () => {
   const rows = panes(content(seen), 120, 30)
   assert.equal(rows.length, 30)
   assert.deepEqual(new Set(widths(rows)), new Set([120]))
-  const L = 120 - 40
+  const L = 120 - 36
   assert.equal(chars(rows[0]!)[0], '┌')
   assert.equal(chars(rows[0]!)[L], '┬')
   assert.equal(chars(rows[0]!).at(-1), '┐')
@@ -72,8 +72,8 @@ test('panes: exact size, shared junctions, bottom row, callback sizes', () => {
   assert.equal(rowText(rows[29]!).trimEnd(), ' keys')
   // sessions: 2 + 2 = 4 rows, so details holds 30 - 4 = 26 rows with its bottom shared
   assert.deepEqual(seen.flow, [L - 2, 27])
-  assert.deepEqual(seen.details, [37])
-  assert.deepEqual(seen.sessions, [37, 2])
+  assert.deepEqual(seen.details, [33])
+  assert.deepEqual(seen.sessions, [33, 2])
   assert.equal(28 - split + 1, 4)
 })
 
@@ -86,10 +86,10 @@ test('panes: sessions pane height is clamped to 3 rows minimum and a third of th
   assert.equal(19 - manySplit, 6) // floor(19 / 3)
 })
 
-test('a 300-column terminal caps the right column at 44', () => {
+test('a 300-column terminal caps the right column at 36', () => {
   const rows = panes(content(), 300, 40)
   assert.deepEqual(new Set(widths(rows)), new Set([300]))
-  assert.equal(chars(rows[0]!)[300 - 44], '┬')
+  assert.equal(chars(rows[0]!)[300 - 36], '┬')
 })
 
 test('box: a title wider than the box ends with a dim … before the frame fill', () => {
