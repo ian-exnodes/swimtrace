@@ -4,13 +4,16 @@ import type { CompiledRule, Pool } from './pools.ts'
 import { resolvePool } from './pools.ts'
 
 export type Fg = 'green' | 'red' | 'yellow' | 'cyan' | 'gray' | 'magenta'
-export interface Seg { text: string; fg?: Fg; bold?: boolean; dim?: boolean; inverse?: boolean }
+/** `hit`: what a click on this text selects in the CLI (`agent:<id>`, `session:<path>`); the band ignores it. */
+export interface Seg { text: string; fg?: Fg; bold?: boolean; dim?: boolean; inverse?: boolean; hit?: string }
 export type Row = Seg[]
 /** `agent` is the flow view (nodes joined by arrows, left to right), the default; `pool` lists the lanes. */
 export type View = 'pool' | 'agent'
 export interface LayoutOpts {
   width: number; height: number; now: number; view: View; runningOnly: boolean
   selectedId?: string; expanded: boolean; rules: readonly CompiledRule[]
+  /** The request node without main's current tool, so the stages row keeps its width (the CLI panes; Details shows the tool). */
+  hideMainTool?: boolean
 }
 export interface Lane { pool: Pool; agents: Agent[] }
 /** `now`, when given, lets a stale session's agents be listed as layout draws them (see `asDrawn`). */
@@ -261,7 +264,7 @@ function listLine(a: Agent, now: number, selected: boolean): Row {
   const tool = a.status === 'running' && a.currentTool ? ` ${a.currentTool}` : ''
   return [
     { text: '  ' },
-    { text: `${GLYPH[a.status]} ${label(a)} ${dur(a, now)}`, fg: COLOR[a.status], inverse: selected },
+    { text: `${GLYPH[a.status]} ${label(a)} ${dur(a, now)}`, fg: COLOR[a.status], inverse: selected, hit: `agent:${a.id}` },
     { text: tool, dim: true },
   ]
 }
@@ -280,7 +283,7 @@ function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>, bar
   const tool = !bare && a.status === 'running' && a.currentTool ? ` · ${cap(toolName(a.currentTool), TOOL_CELLS)}` : ''
   const time = a.id === 'main' ? '' : ` ${dur(a, o.now)}`
   const text = cap(n.edge === undefined ? label(a) : branchLabel(a), LABEL_CELLS)
-  return { text: `[${GLYPH[a.status]} ${text}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined }
+  return { text: `[${GLYPH[a.status]} ${text}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined, hit: `agent:${a.id}` }
 }
 
 const EDGE = { dim: true } as const
@@ -380,10 +383,11 @@ function stageSegs(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: Lay
   const stale = current && main === 'unknown'
   const done = !live && !stale && (!latest || main === 'completed' || (t === undefined ? st.over : t.end !== undefined))
   const glyph = live ? GLYPH.running : stale ? GLYPH.unknown : done ? GLYPH.completed : '◉'
-  const tool = live && !bare && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
+  const tool = live && !bare && !o.hideMainTool && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
   const req: Seg = {
     text: `[${glyph} request${tool}]`, fg: done ? COLOR.completed : live ? COLOR.running : stale ? COLOR.unknown : main && COLOR[main],
     inverse: (latest && st.mainShown && o.selectedId === 'main') || undefined,
+    hit: latest && st.mainShown ? 'agent:main' : undefined,
   }
   if (t === undefined) return [req]
   if (t.plan === undefined) return [req, { text: `[${GLYPH.running} plan ${fmtDuration(o.now - t.startedAt)}]`, fg: COLOR.running }]

@@ -46,7 +46,7 @@ column (§4).
 ```
 
 - **Key bar**: the last row, no border, dim.
-- **Right column** width: `clamp(round(W / 3), 32, 44)` columns, borders included. The Flow pane takes the rest.
+- **Right column** width: `clamp(round(W / 3), 32, 36)` columns, borders included (36 since 2026-10-15: more room for the flow). The Flow pane takes the rest; it draws the request node without main's current tool, so the flow holds still while main works (Details shows the tool).
 - **Flow pane** (left, full height above the key bar). Its title is the header row `layout()` already draws
   (`SWIMTRACE proj session … [STALE] N agents`), with its colors, so the header costs no extra row. Its content is
   `layout(snapshot, { …opts, width: innerW, height: innerH + 1, expanded: false })` without that first row: the

@@ -37,7 +37,7 @@ export interface PaneContent {
   bottom: Row
 }
 
-export const rightWidth = (W: number): number => Math.min(44, Math.max(32, Math.round(W / 3)))
+export const rightWidth = (W: number): number => Math.min(36, Math.max(32, Math.round(W / 3)))
 
 /**
  * Flow on the left; Details over Sessions on the right, sharing edges; `bottom` last. Exactly `H` rows of `W` cells.

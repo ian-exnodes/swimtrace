@@ -666,3 +666,20 @@ test('details band keeps its start/end clock and reason text, as before the shar
   assert.ok(t.includes('status completed  tool —  start 00:00:10  end 00:00:20  reason answer'), JSON.stringify(t))
   assert.ok(t.includes('model —  tools Read'), JSON.stringify(t))
 })
+
+test('click targets: flow nodes and pools lines carry hit agent:<id>; the band ignores the field', () => {
+  const s = snap([spawn('a1', 10_000)])
+  const flowSegs = layout(s, opts()).flat()
+  assert.ok(flowSegs.some(g => g.hit === 'agent:a1' && g.text.includes('a1')), 'flow node')
+  const poolSegs = layout(s, opts({ view: 'pool' })).flat()
+  assert.ok(poolSegs.some(g => g.hit === 'agent:a1' && g.text.includes('a1')), 'pools line')
+  assert.ok(!flowSegs.some(g => g.hit !== undefined && !g.hit.startsWith('agent:')))
+})
+
+test('hideMainTool: the request node leaves out the current tool of main, so the stages row keeps its width', () => {
+  const s = snap([{ kind: 'mainTurn', at: 500, phase: 'start' }, { kind: 'toolCall', at: 600, agentId: 'main', tool: 'Bash' }])
+  assert.ok(text(layout(s, opts())).some(l => l.includes('[● request · Bash]')), 'band and single column keep it')
+  const hidden = text(layout(s, opts({ hideMainTool: true })))
+  assert.ok(hidden.some(l => l.includes('[● request]')))
+  assert.ok(!hidden.some(l => l.includes('request · Bash')))
+})
