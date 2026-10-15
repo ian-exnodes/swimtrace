@@ -80,6 +80,69 @@ A `◆` workflow node fans out its agents, and dashed arrows run from each `revi
 Claude Code runs a workflow only when you ask for one in your own words, which is why the prompt says
 "use a workflow".
 
+### Testing the panes viewer
+
+These prompts exercise the multi-pane `swimtrace` viewer. Keep it open in a terminal of at least 100×20.
+
+**5. Many agents (about 2 minutes)**
+
+```
+Dispatch 8 Explore agents in parallel, each with a short description: list folders, find tests, find config, find the entry point, count files per extension, find the largest file, list dependencies, find the README headings. Then give me one line from each.
+```
+
+The flow is taller than its pane and is cut at the bottom, and the frame stays whole. A click on a node near the bottom
+selects it and Details follows; ↑/↓ step through the same agents.
+
+**6. Model and tools in Details (about 1 minute)**
+
+```
+Run 2 agents in parallel: an Explore agent with model haiku that lists the top-level folders, and a general-purpose agent with model sonnet that reads package.json and lists the scripts. Then summarize.
+```
+
+Click each node. Details shows a different `model` for each agent, and fills `tools` as they work; while one runs,
+`tool` shows its current tool.
+
+**7. An interrupted agent (about 1 minute, you press Esc)**
+
+```
+Use one general-purpose agent to read every source file in this repo one by one and describe each in detail.
+```
+
+Press Esc after about 10 seconds. The node should turn `■` (stopped), with `reason aborted` in Details. `r` (running
+only) hides it, and Details goes back to main.
+
+**8. Long labels and wide characters (about 1 minute)**
+
+```
+Dispatch 2 Explore agents in parallel with these exact descriptions: "[T1] Explore — find every place where configuration is loaded, parsed, validated and merged with defaults across the whole codebase" and "[T2] Explore — tìm các tệp kiểm thử 測試ファイル".
+```
+
+Long labels are cut with `…` and never push the right column. The borders stay aligned around Vietnamese and CJK text,
+and a click on a wide character still selects the right node.
+
+**9. Two sessions**
+
+Start Claude Code in a second repository and run prompt 1 there while the first session is live. Sessions lists both
+and highlights the current one. A click on the other row switches the flow and resets the selection to main; `l` opens
+the full list, where a click opens a session too.
+
+**10. Several turns (about 2 minutes)**
+
+Send prompt 1, wait for it to finish, then send:
+
+```
+Now use 2 Explore agents: one finds TODO comments, one finds the longest function.
+```
+
+The first turn shrinks to one dim `◉ request #1 · 3 agents` line; only the new turn's agents can be clicked.
+
+**Without tokens:** `swimtrace sim failure` shows a failed node and its `reason`, `swimtrace sim multi-session` fills
+Sessions, `swimtrace sim crash` checks that the screen and mouse mode are restored, and
+`swimtrace sim orchestrated --speed 0.3` is slow enough to see that the flow holds still while main works.
+
+**Resizing:** below 100 columns or 20 rows the viewer drops to the single column, and returns to panes when the window
+grows back. From about 140 columns the flow fits on one row. With `--no-mouse`, plain drag selects text again.
+
 ## Use
 
 - The band in Claude Code and the `swimtrace` viewer both draw the agents as a flow, left to right, one line per node,
