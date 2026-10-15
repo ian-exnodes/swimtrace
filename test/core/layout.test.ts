@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { emptySnapshot } from '../../mod/core/model.ts'
 import { reduceAll } from '../../mod/core/reducer.ts'
 import { compileRules } from '../../mod/core/pools.ts'
-import { cellWidth, fmtDuration, isStale, lanes, layout, rowText, selectableIds, type LayoutOpts } from '../../mod/core/layout.ts'
+import { cellWidth, detailLines, fmtDuration, isStale, lanes, layout, rowText, selectableIds, type LayoutOpts } from '../../mod/core/layout.ts'
 
 // Written at the default `now` (100 s), so the session is live, not stale, unless a test says otherwise.
 const snap = (evs: object[], simulated = false) =>
@@ -621,4 +621,41 @@ test('stages: branch labels are capped at 16 cells and padded so a group\'s arro
   assert.equal(t[2]!.indexOf('▶[● a'), t[3]!.indexOf('▶[● b'))
   const narrow = text(layout(s, opts({ width: 59 })))
   assert.ok(narrow.includes('      ├▶ a-very-long-age… ▶ [● a 1m39s]'))
+})
+
+test('detailLines: main when nothing is selected, one field per line, — for missing values', () => {
+  const s = snap([spawn('a1', 10_000)])
+  const t = text(detailLines(s, opts({ width: 40 })))
+  assert.equal(t[0], 'main')
+  assert.ok(t.includes('type    main'))
+  assert.ok(t.includes('parent  —'))
+  assert.ok(t.includes('model   —'))
+  assert.ok(t.includes('reason  —'))
+  assert.ok(t.some(l => /^start   \d\d:\d\d:\d\d  end —$/.test(l)))
+})
+
+test('detailLines: the selected agent, its pool and status; back to main when it is filtered out', () => {
+  const s = snap([spawn('a1', 10_000, { model: 'claude-haiku-4-5' })])
+  const t = text(detailLines(s, opts({ width: 60, selectedId: 'a1' })))
+  assert.equal(t[0], 'a1')
+  assert.ok(t.includes('status  ● running 1m30s'))
+  assert.ok(t.includes('type    Explore'))
+  assert.ok(t.includes('pool    Explore (type)'))
+  assert.ok(t.includes('parent  main'))
+  assert.ok(t.includes('model   claude-haiku-4-5'))
+  const done = snap([spawn('a1', 10_000), { kind: 'runEnd', at: 20_000, agentId: 'a1', reason: 'answer' }])
+  assert.equal(text(detailLines(done, opts({ selectedId: 'a1', runningOnly: true })))[0], 'main')
+})
+
+test('detailLines: the inferred step order line, and every row fits the width', () => {
+  const wf = { workflowRunId: 'wf1' }
+  const s = snap([
+    spawn('r', 10_000, { ...wf, description: 'review:bugs' }),
+    { kind: 'runEnd', at: 20_000, agentId: 'r', reason: 'answer' },
+    spawn('v', 21_000, { ...wf, description: 'verify:bugs' }),
+  ])
+  const t = text(detailLines(s, opts({ width: 40, selectedId: 'v' })))
+  assert.ok(t.includes('after   review:bugs (inferred)'), JSON.stringify(t))
+  const long = snap([spawn('x', 0, { description: '漢'.repeat(80) })])
+  for (const l of text(detailLines(long, opts({ width: 30, selectedId: 'x' })))) assert.ok(cellWidth(l) <= 30, l)
 })

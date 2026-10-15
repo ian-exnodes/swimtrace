@@ -430,6 +430,37 @@ function details(a: Agent, s: Snapshot, o: LayoutOpts, prev: Agent | undefined):
   ]
 }
 
+const clock = (t?: number) => (t === undefined ? '—' : new Date(t).toISOString().slice(11, 19))
+
+/**
+ * The CLI's Details pane: the selected agent when it is on show, else main; one field per line, each cut to `o.width`.
+ * The band keeps `details()` (one dense block under the flow).
+ */
+export function detailLines(snapshot: Snapshot, o: LayoutOpts): Row[] {
+  const s = asDrawn(snapshot, o.now)
+  const shown = selectableIds(snapshot, o).includes(o.selectedId ?? '')
+  const a = s.agents.find(x => x.id === (shown ? o.selectedId : 'main')) ?? s.agents[0]
+  if (a === undefined) return []
+  const prev = stages(s, visible(s, o)).graph.after.get(a.id)
+  const pool = resolvePool(a, s.session.project, s.workflows, o.rules)
+  const tools = Array.isArray(a.tools) && a.tools.length > 0 ? a.tools.join(', ') : '—'
+  const f = (k: string, v: string, fg?: Fg): Row => [{ text: k.padEnd(8), dim: true }, { text: v, fg }]
+  const rows: Row[] = [
+    [{ text: label(a), bold: true }],
+    f('status', `${GLYPH[a.status]} ${a.status} ${dur(a, o.now)}`, COLOR[a.status]),
+    f('type', a.type),
+    f('pool', `${pool.name} (${pool.source})`),
+    f('parent', a.parentId ?? (a.id === 'main' ? '—' : 'main')),
+    f('model', a.model ?? '—'),
+    f('tool', a.currentTool ?? '—'),
+    f('tools', tools),
+    f('start', `${clock(a.startedAt)}  end ${clock(a.endedAt)}`),
+    f('reason', a.endReason ?? '—'),
+    ...(prev ? [f('after', `${label(prev)} (inferred)`)] : []),
+  ]
+  return rows.map(r => clipMore(r, o.width))
+}
+
 /** Subagents only, folded included: the header's `N agents` and Progress's `R running · D done · F failed` (+ waiting, stopped, unknown when any). */
 function counts(s: Snapshot): { total: string; parts: string[] } {
   const subs = s.agents.filter(a => a.id !== 'main')
