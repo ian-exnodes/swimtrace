@@ -387,6 +387,7 @@ function stageSegs(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: Lay
   const req: Seg = {
     text: `[${glyph} request${tool}]`, fg: done ? COLOR.completed : live ? COLOR.running : stale ? COLOR.unknown : main && COLOR[main],
     inverse: (latest && st.mainShown && o.selectedId === 'main') || undefined,
+    hit: latest && st.mainShown ? 'agent:main' : undefined,
   }
   if (t === undefined) return [req]
   if (t.plan === undefined) return [req, { text: `[${GLYPH.running} plan ${fmtDuration(o.now - t.startedAt)}]`, fg: COLOR.running }]

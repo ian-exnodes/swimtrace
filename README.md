@@ -90,8 +90,9 @@ These prompts exercise the multi-pane `swimtrace` viewer. Keep it open in a term
 Dispatch 8 Explore agents in parallel, each with a short description: list folders, find tests, find config, find the entry point, count files per extension, find the largest file, list dependencies, find the README headings. Then give me one line from each.
 ```
 
-The flow is taller than its pane and is cut at the bottom, and the frame stays whole. A click on a node near the bottom
-selects it and Details follows; ↑/↓ step through the same agents.
+All 8 branches fit, even at 100×20 (a flow taller than its pane needs about 15 agents there; it is cut at the bottom
+and the frame stays whole). A click on any branch selects it and Details follows; ↑/↓ step through the same agents,
+and a click on `request` goes back to main.
 
 **6. Model and tools in Details (about 1 minute)**
 
@@ -114,11 +115,11 @@ only) hides it, and Details goes back to main.
 **8. Long labels and wide characters (about 1 minute)**
 
 ```
-Dispatch 2 Explore agents in parallel with these exact descriptions: "[T1] Explore — find every place where configuration is loaded, parsed, validated and merged with defaults across the whole codebase" and "[T2] Explore — tìm các tệp kiểm thử 測試ファイル".
+Dispatch 2 Explore agents in parallel with these exact descriptions: "[T1] Explore — find every place where configuration is loaded, parsed, validated and merged with defaults across the whole codebase" and "[T2] Explore — 測試ファイルを探す tìm các tệp kiểm thử".
 ```
 
-Long labels are cut with `…` and never push the right column. The borders stay aligned around Vietnamese and CJK text,
-and a click on a wide character still selects the right node.
+Long labels are cut with `…` in the flow and in the Details title, and never push the right column. The borders stay
+aligned around the CJK and Vietnamese text, and a click on a wide character still selects the right node.
 
 **9. Two sessions**
 

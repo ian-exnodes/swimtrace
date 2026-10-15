@@ -129,6 +129,9 @@ test('click: a flow node in the panes selects that agent and Details follows', (
   const next = { ...st, ...applyHit(hit, st) }
   assert.equal(next.selectedId, id)
   assert.ok(texts(screen(next, 120, 30)).some(t => t.includes(`type    ${a.type}`)))
+  const req = cellOf(screen(next, 120, 30), 'agent:main')
+  assert.ok(req, 'the request node is clickable')
+  assert.equal(applyHit(hitAt(screen(next, 120, 30), req.col, req.row)!, next).selectedId, 'main')
 })
 
 test('click: a Sessions row switches session and resets the selection', () => {
