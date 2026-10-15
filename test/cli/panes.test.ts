@@ -86,8 +86,19 @@ test('panes: sessions pane height is clamped to 3 rows minimum and a third of th
   assert.equal(19 - manySplit, 6) // floor(19 / 3)
 })
 
-test('review focus 5: a 300-column terminal caps the right column at 44', () => {
+test('a 300-column terminal caps the right column at 44', () => {
   const rows = panes(content(), 300, 40)
   assert.deepEqual(new Set(widths(rows)), new Set([300]))
   assert.equal(chars(rows[0]!)[300 - 44], '┬')
+})
+
+test('box: a title wider than the box ends with a dim … before the frame fill', () => {
+  const [top] = box(t('x'.repeat(40)), [], 20, 3)
+  assert.equal(cellWidth(rowText(top!)), 20)
+  const cs = chars(top!)
+  assert.equal(cs[cs.length - 1], '┐')
+  assert.equal(cs[cs.length - 3], '…')
+  assert.equal(top!.find(g => g.text === '…')?.dim, true)
+  const ok = box(t('short'), [], 20, 3)[0]!
+  assert.ok(!rowText(ok).includes('…'))
 })

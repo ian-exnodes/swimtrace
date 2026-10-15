@@ -17,7 +17,8 @@ export function box(title: Row, body: Row[], w: number, h: number, corners = '�
   const [tl, tr, bl, br] = [...corners]
   const inner = w - 1 - (right ? 1 : 0) // cells between the edges
   const edge = right ? [{ text: '│', ...FRAME }] : []
-  const t = clip(title, Math.max(0, inner - 3))
+  const room = Math.max(0, inner - 3)
+  const t = cellWidth(rowText(title)) <= room ? title : room === 0 ? [] : [...clip(title, room - 1), { text: '…', ...FRAME }]
   const fill = inner - 3 - cellWidth(rowText(t))
   const top: Row = [{ text: `${tl}─ `, ...FRAME }, ...t, { text: ` ${'─'.repeat(fill)}${right ? tr : ''}`, ...FRAME }]
   const rows: Row[] = [top]
@@ -38,7 +39,10 @@ export interface PaneContent {
 
 export const rightWidth = (W: number): number => Math.min(44, Math.max(32, Math.round(W / 3)))
 
-/** Flow on the left; Details over Sessions on the right, sharing edges; `bottom` last. Exactly `H` rows of `W` cells. */
+/**
+ * Flow on the left; Details over Sessions on the right, sharing edges; `bottom` last. Exactly `H` rows of `W` cells.
+ * Callers must only use it at W >= 100 and H >= 20 (see `usePanes`); smaller sizes are unsupported.
+ */
 export function panes(c: PaneContent, W: number, H: number): Row[] {
   const R = rightWidth(W)
   const L = W - R

@@ -24,7 +24,7 @@ test('usePanes: 100×20 and up', () => {
   assert.equal(usePanes(100, 19), false)
 })
 
-test('review focus 1: below 100×20 the screen is today\'s single column, row for row', () => {
+test('below 100×20 the screen is today\'s single column, row for row', () => {
   for (const [W, H] of [[99, 30], [120, 19], [80, 24]] as const) {
     const st = state()
     const today = layout(orch!, { width: W, height: H, now: st.now, view: 'agent', runningOnly: false, expanded: false, rules: [] }).slice(0, H)
@@ -77,7 +77,7 @@ test('panes: Sessions highlights the current session', () => {
   assert.ok(hit, 'current session in inverse')
 })
 
-test('review focus 2: the Sessions window keeps the current session in view', () => {
+test('the Sessions window keeps the current session in view', () => {
   const es = Array.from({ length: 10 }, (_, i) => entry(emptySnapshot({ id: `sess-${i}-xxxxxx`, project: `/w/p${i}`, startedAt: 0 })))
   const rows = sessionPaneRows(es, es[9]!.path, 30, 3)
   assert.equal(rows.length, 3)
@@ -86,9 +86,25 @@ test('review focus 2: the Sessions window keeps the current session in view', ()
   assert.match(rowText(sessionPaneRows(es, es[0]!.path, 30, 3)[0]!), /^p0 /)
 })
 
-test('review focus 3 and 4: wide project names, long labels, a session with only main', () => {
+test('wide project names, long labels, a session with only main', () => {
   const wide = { ...emptySnapshot({ id: 'sess-wide0000', project: `/w/${'漢字'.repeat(40)}`, startedAt: 0 }), writtenAt: 1_000 }
   const st = state({ entries: [entry(wide)], current: '/x/sess-wide0000.json', now: 1_000 })
   for (const [W, H] of [[100, 20], [137, 33]] as const) exact(screen(st, W, H), W, H)
   assert.ok(texts(screen(st, 120, 30)).some(t => t.includes('type    main')))
+})
+
+test('panes: a long project name is shortened, not the status markers or the agent count', () => {
+  const long = { ...orch!, simulated: true, session: { ...orch!.session, project: '/w/my-rather-long-project-name-here', endedAt: undefined }, writtenAt: 0 }
+  const n = orch!.agents.filter(a => a.id !== 'main').length
+  for (const view of ['agent', 'pool'] as const) {
+    const st = state({ entries: [entry(long)], current: `/x/${long.session.id}.json`, now: 20_000, view })
+    const rows = screen(st, 100, 20)
+    exact(rows, 100, 20)
+    const top = rowText(rows[0]!)
+    assert.match(top, /SWIMTRACE/)
+    assert.ok(top.includes('[SIMULATED]') && top.includes('[STALE]'), top)
+    assert.ok(top.includes(`${n} agent${n === 1 ? '' : 's'}`), top)
+    assert.ok(top.includes('…'), top)
+    if (view === 'pool') assert.ok(top.includes(' · pools'), top)
+  }
 })

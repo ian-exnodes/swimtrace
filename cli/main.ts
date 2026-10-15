@@ -4,8 +4,9 @@ import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { emitKeypressEvents } from 'node:readline'
 import { compileRules, parseConfig, type CompiledRule } from '../mod/core/pools.ts'
-import { clip, detailLines, fmtDuration, layout, selectableIds, type Row, type View } from '../mod/core/layout.ts'
+import { cellWidth, clip, detailLines, fmtDuration, layout, rowText, selectableIds, type LayoutOpts, type Row, type View } from '../mod/core/layout.ts'
 import { listSessions, pickSession, pruneOld, swimtraceDir, type SessionEntry } from './snapshots.ts'
+import type { Snapshot } from '../mod/core/model.ts'
 import { panes } from './panes.ts'
 import { ALT_OFF, ALT_ON, HIDE_CURSOR, SHOW_CURSOR, diffFrame, toAnsi } from './term.ts'
 
@@ -16,7 +17,7 @@ const HELP = `swimtrace — live flow of Claude Code subagents
   swimtrace sim <fanout|failure|workflow|orchestrated|multi-session|crash> [--speed N]
   swimtrace clean      delete ~/.claude/swimtrace (snapshots, sim data, config)
 
-keys: ↑/↓ select · Enter details · g flow/pools · r running only · l session list · Tab next session · q quit`
+keys: ↑/↓ select · Enter details (single column) · g flow/pools · r running only · l session list · Tab next session · q quit`
 
 const sessionState = (e: SessionEntry) => (e.snap.session.endedAt !== undefined ? 'ended' : e.stale ? 'stale' : 'live')
 
@@ -54,6 +55,20 @@ export const usePanes = (width: number, height: number): boolean => width >= 100
 
 const KEYS = ' ↑↓ select  g flow/pools  r running  Tab session  l sessions  q quit'
 
+/**
+ * The Flow pane's title: the header row, plus ` · pools` in the pools view. When it is wider than `room`, the
+ * project/session segment is shortened first (ending in `…`, or dropped), so the status markers and the agent count stay whole.
+ */
+function flowTitle(snap: Snapshot, o: Omit<LayoutOpts, 'width' | 'height' | 'expanded'>, pools: boolean, room: number): Row {
+  const [brand, project = { text: '' }, ...rest] = layout(snap, { ...o, width: 10_000, height: 1, expanded: false })[0]!
+  const tail: Row = pools ? [...rest, { text: ' · pools', dim: true }] : rest
+  const fixed = cellWidth(rowText([brand!, ...tail]))
+  const avail = room - fixed
+  if (cellWidth(project.text) <= avail) return [brand!, project, ...tail]
+  if (avail < 1) return [brand!, ...tail]
+  return [brand!, { ...project, text: rowText(clip([project], avail - 1)) + '…' }, ...tail]
+}
+
 /** One frame: the session list, the single column (as the band draws it), or the panes when the terminal has room. */
 export function screen(st: ViewState, width: number, height: number): Row[] {
   const cur = st.entries.find(e => e.path === st.current)
@@ -63,8 +78,7 @@ export function screen(st: ViewState, width: number, height: number): Row[] {
     return panes({
       flow: (w, h) => {
         const rows = layout(cur.snap, { ...o, width: w, height: h + 1, expanded: false })
-        const title = st.view === 'pool' ? [...rows[0]!, { text: ' · pools', dim: true }] : rows[0]!
-        return { title, body: rows.slice(1) }
+        return { title: flowTitle(cur.snap, o, st.view === 'pool', w - 2), body: rows.slice(1) }
       },
       details: w => detailLines(cur.snap, { ...o, width: w, height, expanded: false }),
       sessions: (w, h) => sessionPaneRows(st.entries, st.current, w, h),
