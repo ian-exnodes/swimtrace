@@ -125,7 +125,9 @@ Claude Code runs a workflow only when you ask for one in your own words, which i
   `r` running only, `j`/`k` select, `d` details (model and tools used, too), `n` other sessions.
 - `swimtrace` in another terminal (a tmux split works well) follows the newest live session of the current directory.
   `swimtrace --all` starts at the session list. Keys: ↑/↓, Enter, `g`, `r`, `l` list, Tab, `q`.
-  `q` exists only in the CLI.
+  `q` exists only in the CLI. On a terminal of at least 100×20 the viewer splits into panes: the flow on the left,
+  Details (the selected agent, or main) and Sessions on the right, the keys along the bottom; Enter does nothing
+  there, since Details is always shown. Smaller, it is the single column above.
 - The band uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
 - `swimtrace sim fanout|failure|workflow|orchestrated|multi-session|crash [--speed N]` plays synthetic events (no
   tokens), marked `SIMULATED`. `N` must be a number greater than 0. `orchestrated` walks through the stages: a short

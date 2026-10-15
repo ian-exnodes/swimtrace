@@ -3,9 +3,10 @@ import { readFileSync, readdirSync, realpathSync, watch, rmSync, type FSWatcher 
 import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { emitKeypressEvents } from 'node:readline'
-import { compileRules, parseConfig } from '../mod/core/pools.ts'
-import { clip, fmtDuration, layout, selectableIds, type Row, type View } from '../mod/core/layout.ts'
+import { compileRules, parseConfig, type CompiledRule } from '../mod/core/pools.ts'
+import { clip, detailLines, fmtDuration, layout, selectableIds, type Row, type View } from '../mod/core/layout.ts'
 import { listSessions, pickSession, pruneOld, swimtraceDir, type SessionEntry } from './snapshots.ts'
+import { panes } from './panes.ts'
 import { ALT_OFF, ALT_ON, HIDE_CURSOR, SHOW_CURSOR, diffFrame, toAnsi } from './term.ts'
 
 const HELP = `swimtrace — live flow of Claude Code subagents
@@ -17,17 +18,65 @@ const HELP = `swimtrace — live flow of Claude Code subagents
 
 keys: ↑/↓ select · Enter details · g flow/pools · r running only · l session list · Tab next session · q quit`
 
+const sessionState = (e: SessionEntry) => (e.snap.session.endedAt !== undefined ? 'ended' : e.stale ? 'stale' : 'live')
+
 export function sessionListRows(entries: SessionEntry[], selected: number, width: number): Row[] {
   const rows: Row[] = [[{ text: 'SWIMTRACE — sessions', bold: true }]]
   entries.forEach((e, i) => {
     const s = e.snap
-    const state = s.session.endedAt !== undefined ? 'ended' : e.stale ? 'stale' : 'live'
+    const state = sessionState(e)
     const running = s.agents.filter(a => a.status === 'running' && a.id !== 'main').length
     const text = `  ${s.session.project}  ${s.session.id.slice(0, 8)}  ${state}  running ${running}  age ${fmtDuration(Date.now() - s.session.startedAt)}`
     rows.push([{ text, inverse: i === selected, fg: state === 'live' ? 'cyan' : 'gray' }])
   })
   if (entries.length === 0) rows.push([{ text: '  No sessions yet. Is the swimtrace mod installed?', dim: true }])
   return rows.map(r => clip(r, width)) // a folder name may hold control characters or wide characters
+}
+
+/** The Sessions pane: `project  id8  state`, the current one inverse; at most `height` rows, windowed to keep it shown. */
+export function sessionPaneRows(entries: SessionEntry[], current: string | undefined, width: number, height: number): Row[] {
+  const at = Math.max(0, entries.findIndex(e => e.path === current))
+  const start = Math.max(0, at - height + 1)
+  return entries.slice(start, start + height).map(e => {
+    const state = sessionState(e)
+    const name = e.snap.session.project.split('/').filter(Boolean).at(-1) ?? e.snap.session.project
+    return clip([{ text: `${name}  ${e.snap.session.id.slice(0, 8)}  ${state}`, inverse: e.path === current, fg: state === 'live' ? 'cyan' : 'gray' }], width)
+  })
+}
+
+export interface ViewState {
+  entries: SessionEntry[]; current?: string; listMode: boolean; listSel: number
+  view: View; runningOnly: boolean; expanded: boolean; selectedId?: string
+  rules: readonly CompiledRule[]; notes: string[]; now: number
+}
+
+export const usePanes = (width: number, height: number): boolean => width >= 100 && height >= 20
+
+const KEYS = ' ↑↓ select  g flow/pools  r running  Tab session  l sessions  q quit'
+
+/** One frame: the session list, the single column (as the band draws it), or the panes when the terminal has room. */
+export function screen(st: ViewState, width: number, height: number): Row[] {
+  const cur = st.entries.find(e => e.path === st.current)
+  const warn = st.notes.length ? clip([{ text: `config: ${st.notes[0]}`, fg: 'yellow' }], width) : undefined
+  const o = { now: st.now, view: st.view, runningOnly: st.runningOnly, selectedId: st.selectedId, rules: st.rules }
+  if (!st.listMode && cur !== undefined && usePanes(width, height)) {
+    return panes({
+      flow: (w, h) => {
+        const rows = layout(cur.snap, { ...o, width: w, height: h + 1, expanded: false })
+        const title = st.view === 'pool' ? [...rows[0]!, { text: ' · pools', dim: true }] : rows[0]!
+        return { title, body: rows.slice(1) }
+      },
+      details: w => detailLines(cur.snap, { ...o, width: w, height, expanded: false }),
+      sessions: (w, h) => sessionPaneRows(st.entries, st.current, w, h),
+      sessionCount: st.entries.length,
+      bottom: warn ?? [{ text: KEYS, dim: true }],
+    }, width, height)
+  }
+  let rows = st.listMode || cur === undefined
+    ? sessionListRows(st.entries, st.listSel, width)
+    : layout(cur.snap, { ...o, width, height, expanded: st.expanded })
+  if (warn) rows = [...rows.slice(0, height - 1), warn]
+  return rows.slice(0, height)
 }
 
 /** Wrap a callback so a throw is reported once to onError instead of escaping as uncaught. */
@@ -81,12 +130,8 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
   const draw = () => {
     const width = out.columns || 80
     const height = out.rows || 24
-    const cur = entries.find(e => e.path === current)
-    let rows: Row[]
-    if (listMode || cur === undefined) rows = sessionListRows(entries, listSel, width)
-    else rows = layout(cur.snap, { width, height, now: Date.now(), view, runningOnly, selectedId, expanded, rules })
-    if (notes.length) rows = [...rows.slice(0, height - 1), clip([{ text: `config: ${notes[0]}`, fg: 'yellow' }], width)]
-    const next = rows.slice(0, height).map(toAnsi)
+    const st: ViewState = { entries, current, listMode, listSel, view, runningOnly, expanded, selectedId, rules, notes, now: Date.now() }
+    const next = screen(st, width, height).map(toAnsi)
     out.write(diffFrame(prev, next))
     prev = next
   }
@@ -132,7 +177,7 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
         case 'down': moveSel(1); break
         case 'return':
           if (listMode && entries[listSel]) { current = entries[listSel]!.path; listMode = false; selectedId = undefined }
-          else expanded = !expanded
+          else if (!usePanes(out.columns || 80, out.rows || 24)) expanded = !expanded // with panes, Details is always shown
           break
         case 'g': view = view === 'agent' ? 'pool' : 'agent'; break
         case 'r': runningOnly = !runningOnly; break
