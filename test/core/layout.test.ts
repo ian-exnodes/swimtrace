@@ -659,3 +659,10 @@ test('detailLines: the inferred step order line, and every row fits the width', 
   const long = snap([spawn('x', 0, { description: '漢'.repeat(80) })])
   for (const l of text(detailLines(long, opts({ width: 30, selectedId: 'x' })))) assert.ok(cellWidth(l) <= 30, l)
 })
+
+test('details band keeps its start/end clock and reason text, as before the shared helpers', () => {
+  const s = snap([spawn('a1', 10_000), { kind: 'toolCall', at: 11_000, agentId: 'a1', tool: 'Read' }, { kind: 'runEnd', at: 20_000, agentId: 'a1', reason: 'answer' }])
+  const t = text(layout(s, opts({ selectedId: 'a1', expanded: true })))
+  assert.ok(t.includes('status completed  tool —  start 00:00:10  end 00:00:20  reason answer'), JSON.stringify(t))
+  assert.ok(t.includes('model —  tools Read'), JSON.stringify(t))
+})

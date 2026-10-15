@@ -418,19 +418,18 @@ function clipMore(row: Row, width: number): Row {
   return cellWidth(rowText(row)) <= width ? clip(row, width) : [...clip(row, width - 1), { text: '…', ...EDGE }]
 }
 
+const clock = (t?: number) => (t === undefined ? '—' : new Date(t).toISOString().slice(11, 19))
+const toolList = (a: Agent) => (Array.isArray(a.tools) && a.tools.length > 0 ? a.tools.join(', ') : '—')
+
 function details(a: Agent, s: Snapshot, o: LayoutOpts, prev: Agent | undefined): Row[] {
   const pool = resolvePool(a, s.session.project, s.workflows, o.rules)
-  const time = (t?: number) => (t === undefined ? '—' : new Date(t).toISOString().slice(11, 19))
-  const tools = Array.isArray(a.tools) && a.tools.length > 0 ? a.tools.join(', ') : '—'
   return [
     [{ text: `id ${a.id}  label ${label(a)}  parent ${a.parentId ?? (a.id === 'main' ? '—' : 'main')}  type ${a.type}  pool ${pool.name} (${pool.source})`, dim: true }],
-    [{ text: `status ${a.status}  tool ${a.currentTool ?? '—'}  start ${time(a.startedAt)}  end ${time(a.endedAt)}  reason ${a.endReason ?? '—'}`, dim: true }],
-    [{ text: `model ${a.model ?? '—'}  tools ${tools}`, dim: true }],
+    [{ text: `status ${a.status}  tool ${a.currentTool ?? '—'}  start ${clock(a.startedAt)}  end ${clock(a.endedAt)}  reason ${a.endReason ?? '—'}`, dim: true }],
+    [{ text: `model ${a.model ?? '—'}  tools ${toolList(a)}`, dim: true }],
     ...(prev ? [[{ text: `after ${label(prev)} (step order inferred from labels)`, dim: true }]] : []),
   ]
 }
-
-const clock = (t?: number) => (t === undefined ? '—' : new Date(t).toISOString().slice(11, 19))
 
 /**
  * The CLI's Details pane: the selected agent when it is on show, else main; one field per line, each cut to `o.width`.
@@ -443,7 +442,6 @@ export function detailLines(snapshot: Snapshot, o: LayoutOpts): Row[] {
   if (a === undefined) return []
   const prev = stages(s, visible(s, o)).graph.after.get(a.id)
   const pool = resolvePool(a, s.session.project, s.workflows, o.rules)
-  const tools = Array.isArray(a.tools) && a.tools.length > 0 ? a.tools.join(', ') : '—'
   const f = (k: string, v: string, fg?: Fg): Row => [{ text: k.padEnd(8), dim: true }, { text: v, fg }]
   const rows: Row[] = [
     [{ text: label(a), bold: true }],
@@ -453,7 +451,7 @@ export function detailLines(snapshot: Snapshot, o: LayoutOpts): Row[] {
     f('parent', a.parentId ?? (a.id === 'main' ? '—' : 'main')),
     f('model', a.model ?? '—'),
     f('tool', a.currentTool ?? '—'),
-    f('tools', tools),
+    f('tools', toolList(a)),
     f('start', `${clock(a.startedAt)}  end ${clock(a.endedAt)}`),
     f('reason', a.endReason ?? '—'),
     ...(prev ? [f('after', `${label(prev)} (inferred)`)] : []),
