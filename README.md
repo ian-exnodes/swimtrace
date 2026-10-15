@@ -37,6 +37,64 @@ SwimTrace has two parts. The **plugin** draws the flow above the prompt inside C
 
    Then try the sample prompts below in Claude Code and watch the band fill in.
 
+## Terminal viewer
+
+The `swimtrace` command shows the same flow as the band, in a terminal of its own, with room for details.
+
+1. Open a second terminal next to Claude Code (a split pane works well) and `cd` to the same project.
+2. Run `swimtrace`. It follows the newest live session of that directory; `swimtrace --all` starts at the list of
+   every session instead.
+3. Work in Claude Code as usual. The flow fills in as agents start and finish.
+4. Press `q` to quit.
+
+On a terminal of at least 100×20 the viewer splits into panes:
+
+```
+┌─ SWIMTRACE  project-alpha  session sim-fano   3 agents ──────────┬─ Details ─────────────────────┐
+│                                                                  │ map auth module               │
+│ [● request]─▶[✓ plan 0s]─▶[⑂ route]                              │ status  ● running 5s          │
+│   ┌────────────────────────┘                                     │ type    Explore               │
+│   ├─ Explore ──▶[● map auth module · Grep 5s]                    │ pool    Explore (type)        │
+│   ├─ Explore ──▶[✓ map billing module 5s]                        │ parent  main                  │
+│   └─ Explore ──▶[● map api routes · Glob 5s]                     │ model   —                     │
+│ Progress  2 running · 1 done · 0 failed                          │ tool    Grep                  │
+│                                                                  │ tools   Grep                  │
+│                                                                  │ start   00:00:00  end —       │
+│                                                                  │ reason  —                     │
+│                                                                  │                               │
+│                                                                  │                               │
+│                                                                  │                               │
+│                                                                  │                               │
+│                                                                  ├─ Sessions ────────────────────┤
+│                                                                  │ project-alpha  sim-fano  live │
+│                                                                  │ project-delta  sim-mult  live │
+└──────────────────────────────────────────────────────────────────┴───────────────────────────────┘
+ ↑↓ select  g flow/pools  r running  Tab session  l sessions  q quit
+```
+
+- **Flow** (left): the agents of the latest turn, as described under [Use](#use). The title names the project, the
+  session and the number of agents, plus `[ENDED]` when the session is over, `[STALE]` when a live session has
+  written nothing for 15 seconds (Claude Code may have crashed), and `[SIMULATED]` for `swimtrace sim`.
+- **Details** (top right): everything known about the selected agent: label, status, type, pool, parent, model,
+  current tool, tools used, start and end time, and why it ended. With nothing selected it shows main.
+- **Sessions** (bottom right): the recorded sessions, the one on screen highlighted.
+- **Key bar** (bottom): the keys below. A problem in `config.json` replaces it with a yellow warning.
+
+| Key / mouse | What it does |
+|---|---|
+| ↑ / ↓ | select the previous / next agent (`request` is main) |
+| click an agent | select it (click `request` for main) |
+| click a session | open it |
+| `g` | switch between the flow and the [pools](#pools) view |
+| `r` | show running agents only |
+| Tab | next session |
+| `l` | full-screen session list (↑/↓ and Enter, or click, to open one) |
+| `q`, Ctrl+C | quit |
+
+While the viewer runs, clicks belong to it: select text with Shift-drag (Option-drag in iTerm2), or start it with
+`swimtrace --no-mouse`. Below 100×20 the viewer is a single column (the flow only); there Enter shows or hides the
+details of the selected agent under the flow. `swimtrace --help` lists all of this.
+
 ## Sample prompts
 
 Paste these into Claude Code in any repository. They go from cheapest to biggest, and each shows a different part
@@ -187,13 +245,7 @@ grows back. From about 140 columns the flow fits on one row. With `--no-mouse`, 
 - In Claude Code the flow appears above the prompt once a subagent runs; `/swimtrace` hides or shows it, and
   ctrl+x ctrl+a collapses it. Keys (button hotkeys, after a click on the band or ctrl+x tab): `g` flow/pools,
   `r` running only, `j`/`k` select, `d` details (model and tools used, too), `n` other sessions.
-- `swimtrace` in another terminal (a tmux split works well) follows the newest live session of the current directory.
-  `swimtrace --all` starts at the session list. Keys: ↑/↓, Enter, `g`, `r`, `l` list, Tab, `q`.
-  `q` exists only in the CLI. On a terminal of at least 100×20 the viewer splits into panes: the flow on the left,
-  Details (the selected agent, or main) and Sessions on the right, the keys along the bottom; Enter does nothing
-  there, since Details is always shown. Smaller, it is the single column above.
-  Click an agent to select it, or a session (in Sessions or the `l` list) to open it. While the viewer runs,
-  the terminal's own text selection needs Shift-drag (Option-drag in iTerm2); `swimtrace --no-mouse` turns clicks off.
+- `swimtrace` in another terminal shows the same flow with Details and Sessions panes; see [Terminal viewer](#terminal-viewer).
 - The band uses Claude Code's theme colors, so it is readable on light and dark themes; the terminal viewer uses your terminal's ANSI palette.
 - `swimtrace sim fanout|failure|workflow|orchestrated|multi-session|crash [--speed N]` plays synthetic events (no
   tokens), marked `SIMULATED`. `N` must be a number greater than 0. `orchestrated` walks through the stages: a short
