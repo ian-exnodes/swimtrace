@@ -3,21 +3,25 @@ import { readFileSync, readdirSync, realpathSync, watch, rmSync, type FSWatcher 
 import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { emitKeypressEvents } from 'node:readline'
+import { PassThrough } from 'node:stream'
 import { compileRules, parseConfig, type CompiledRule } from '../mod/core/pools.ts'
 import { cellWidth, clip, detailLines, fmtDuration, layout, rowText, selectableIds, type LayoutOpts, type Row, type View } from '../mod/core/layout.ts'
 import { listSessions, pickSession, pruneOld, swimtraceDir, type SessionEntry } from './snapshots.ts'
 import type { Snapshot } from '../mod/core/model.ts'
 import { panes } from './panes.ts'
+import { MOUSE_OFF, MOUSE_ON, hitAt, takeMouse } from './mouse.ts'
 import { ALT_OFF, ALT_ON, HIDE_CURSOR, SHOW_CURSOR, diffFrame, toAnsi } from './term.ts'
 
 const HELP = `swimtrace — live flow of Claude Code subagents
 
   swimtrace            follow the newest live session of this directory
   swimtrace --all      start at the list of all sessions
+  --no-mouse           no clicks (keeps the terminal's own text selection)
   swimtrace sim <fanout|failure|workflow|orchestrated|multi-session|crash> [--speed N]
   swimtrace clean      delete ~/.claude/swimtrace (snapshots, sim data, config)
 
-keys: ↑/↓ select · Enter details (single column) · g flow/pools · r running only · l session list · Tab next session · q quit`
+keys: ↑/↓ select · Enter details (single column) · g flow/pools · r running only · l session list · Tab next session · q quit
+mouse: click an agent to select it, a session to open it; Shift-drag (Option-drag in iTerm2) selects text`
 
 const sessionState = (e: SessionEntry) => (e.snap.session.endedAt !== undefined ? 'ended' : e.stale ? 'stale' : 'live')
 
@@ -28,7 +32,7 @@ export function sessionListRows(entries: SessionEntry[], selected: number, width
     const state = sessionState(e)
     const running = s.agents.filter(a => a.status === 'running' && a.id !== 'main').length
     const text = `  ${s.session.project}  ${s.session.id.slice(0, 8)}  ${state}  running ${running}  age ${fmtDuration(Date.now() - s.session.startedAt)}`
-    rows.push([{ text, inverse: i === selected, fg: state === 'live' ? 'cyan' : 'gray' }])
+    rows.push([{ text, inverse: i === selected, fg: state === 'live' ? 'cyan' : 'gray', hit: `session:${e.path}` }])
   })
   if (entries.length === 0) rows.push([{ text: '  No sessions yet. Is the swimtrace mod installed?', dim: true }])
   return rows.map(r => clip(r, width)) // a folder name may hold control characters or wide characters
@@ -41,7 +45,7 @@ export function sessionPaneRows(entries: SessionEntry[], current: string | undef
   return entries.slice(start, start + height).map(e => {
     const state = sessionState(e)
     const name = e.snap.session.project.split('/').filter(Boolean).at(-1) ?? e.snap.session.project
-    return clip([{ text: `${name}  ${e.snap.session.id.slice(0, 8)}  ${state}`, inverse: e.path === current, fg: state === 'live' ? 'cyan' : 'gray' }], width)
+    return clip([{ text: `${name}  ${e.snap.session.id.slice(0, 8)}  ${state}`, inverse: e.path === current, fg: state === 'live' ? 'cyan' : 'gray', hit: `session:${e.path}` }], width)
   })
 }
 
@@ -49,6 +53,14 @@ export interface ViewState {
   entries: SessionEntry[]; current?: string; listMode: boolean; listSel: number
   view: View; runningOnly: boolean; expanded: boolean; selectedId?: string
   rules: readonly CompiledRule[]; notes: string[]; now: number
+}
+
+/** What a click on a `hit` target changes: an agent is selected; a session is opened (as Tab does). */
+export function applyHit(hit: string, st: ViewState): Partial<ViewState> {
+  if (hit.startsWith('agent:')) return { selectedId: hit.slice('agent:'.length) }
+  const path = hit.startsWith('session:') ? hit.slice('session:'.length) : undefined
+  if (path !== undefined && st.entries.some(e => e.path === path)) return { current: path, listMode: false, selectedId: undefined }
+  return {}
 }
 
 export const usePanes = (width: number, height: number): boolean => width >= 100 && height >= 20
@@ -120,7 +132,7 @@ export function safeToClean(root: string): { ok: true; missing: boolean } | { ok
   return stray.length === 0 ? { ok: true, missing: false } : { ok: false, why: `it holds files SwimTrace did not create: ${stray.slice(0, 5).join(', ')}` }
 }
 
-export async function viewer(dir: string, startInList: boolean): Promise<number> {
+export async function viewer(dir: string, startInList: boolean, mouse = true): Promise<number> {
   const out = process.stdout
   const cache = new Map()
   const cfgText = (() => { try { return readFileSync(join(swimtraceDir(), 'config.json'), 'utf8') } catch { return undefined } })()
@@ -135,6 +147,7 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
   let expanded = false
   let selectedId: string | undefined
   let prev: string[] = []
+  let frame: Row[] = [] // the last frame drawn, for clicks
   const notes = [...parsed.warnings, ...warnings]
 
   const refresh = () => {
@@ -145,7 +158,8 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
     const width = out.columns || 80
     const height = out.rows || 24
     const st: ViewState = { entries, current, listMode, listSel, view, runningOnly, expanded, selectedId, rules, notes, now: Date.now() }
-    const next = screen(st, width, height).map(toAnsi)
+    frame = screen(st, width, height)
+    const next = frame.map(toAnsi)
     out.write(diffFrame(prev, next))
     prev = next
   }
@@ -160,14 +174,14 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
     if (poll) clearInterval(poll)
     try { watcher?.close() } catch { /* already closed */ }
     try { process.stdin.setRawMode?.(false); process.stdin.pause() } catch { /* stdin gone */ }
-    out.write(SHOW_CURSOR + ALT_OFF)
+    out.write((mouse ? MOUSE_OFF : '') + SHOW_CURSOR + ALT_OFF)
   }
 
   return await new Promise<number>(resolve => {
     const quit = () => { restore(); resolve(0) }
     const fail = (e: unknown) => { restore(); console.error(e); resolve(1) }
     const tick = guard(() => { refresh(); draw() }, fail)
-    out.write(ALT_ON + HIDE_CURSOR)
+    out.write(ALT_ON + HIDE_CURSOR + (mouse ? MOUSE_ON : ''))
     guard(() => { refresh(); redrawAll() }, fail)()
     if (restored) return
     try { watcher = watch(dir, tick) } catch { /* dir may not exist yet; the poll covers it */ }
@@ -175,10 +189,29 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
     out.on('resize', guard(redrawAll, fail))
     process.on('SIGINT', quit)
     process.on('SIGTERM', quit)
-    emitKeypressEvents(process.stdin)
+    // Mouse reports are taken out of stdin first: the keypress parser would split them into stray keys.
+    const keys = new PassThrough()
+    emitKeypressEvents(keys)
+    let pending = ''
     process.stdin.setRawMode?.(true)
+    process.stdin.setEncoding('utf8')
     process.stdin.resume()
-    process.stdin.on('keypress', guard((_str: string, key: { name?: string; ctrl?: boolean; sequence?: string }) => {
+    process.stdin.on('data', guard((chunk: string) => {
+      const m = takeMouse(pending + chunk)
+      pending = m.pending
+      for (const c of m.clicks) {
+        const hit = hitAt(frame, c.col, c.row)
+        if (hit === undefined) continue
+        const st: ViewState = { entries, current, listMode, listSel, view, runningOnly, expanded, selectedId, rules, notes, now: Date.now() }
+        const d = applyHit(hit, st)
+        if ('selectedId' in d) selectedId = d.selectedId
+        if ('current' in d) current = d.current
+        if (d.listMode !== undefined) listMode = d.listMode
+        draw()
+      }
+      if (m.rest) keys.write(m.rest)
+    }, fail))
+    keys.on('keypress', guard((_str: string, key: { name?: string; ctrl?: boolean; sequence?: string }) => {
       const cur = entries.find(e => e.path === current)
       const ids = cur ? selectableIds(cur.snap, { view, runningOnly, rules, now: Date.now() }) : []
       const moveSel = (d: number) => {
@@ -211,6 +244,7 @@ export async function viewer(dir: string, startInList: boolean): Promise<number>
 export async function main(argv: string[]): Promise<number> {
   const [cmd, arg] = argv
   const root = swimtraceDir()
+  const mouse = !argv.includes('--no-mouse')
   if (cmd === '--help' || cmd === '-h') { console.log(HELP); return 0 }
   if (cmd === 'clean') {
     const safe = safeToClean(root)
@@ -223,11 +257,11 @@ export async function main(argv: string[]): Promise<number> {
     const speed = speedAt > 0 ? Number(argv[speedAt + 1]) : 1
     if (!Number.isFinite(speed) || speed <= 0) { console.error('--speed must be a number greater than 0'); return 1 }
     const { runSim } = await import('./sim.ts')
-    return runSim(arg ?? 'fanout', join(root, 'sim'), speed, d => viewer(d, false))
+    return runSim(arg ?? 'fanout', join(root, 'sim'), speed, d => viewer(d, false, mouse))
   }
   if (!process.stdout.isTTY) { console.error('swimtrace needs a terminal (TTY).'); return 1 }
   pruneOld(join(root, 'sessions'), Date.now())
-  return viewer(join(root, 'sessions'), cmd === '--all')
+  return viewer(join(root, 'sessions'), argv.includes('--all'), mouse)
 }
 
 function isEntry(): boolean {
@@ -236,5 +270,5 @@ function isEntry(): boolean {
 
 // argv[1] is the npm bin symlink after a global install; compare real paths
 if (isEntry()) {
-  main(process.argv.slice(2)).then(code => process.exit(code), err => { process.stdout.write(SHOW_CURSOR + ALT_OFF); console.error(err); process.exit(1) })
+  main(process.argv.slice(2)).then(code => process.exit(code), err => { process.stdout.write(MOUSE_OFF + SHOW_CURSOR + ALT_OFF); console.error(err); process.exit(1) })
 }

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { screen, sessionPaneRows, usePanes, type ViewState } from '../../cli/main.ts'
+import { applyHit, screen, sessionPaneRows, usePanes, type ViewState } from '../../cli/main.ts'
+import { hitAt } from '../../cli/mouse.ts'
 import { playInstant } from '../../cli/sim.ts'
 import type { SessionEntry } from '../../cli/snapshots.ts'
 import { emptySnapshot, type Snapshot } from '../../mod/core/model.ts'
@@ -107,4 +108,47 @@ test('panes: a long project name is shortened, not the status markers or the age
     assert.ok(top.includes('…'), top)
     if (view === 'pool') assert.ok(top.includes(' · pools'), top)
   }
+})
+
+/** The first cell (col, row) of the frame whose text carries `hit`. */
+const cellOf = (rows: Row[], hit: string) => {
+  for (let row = 0; row < rows.length; row++) {
+    let col = 0
+    for (const g of rows[row]!) { if (g.hit === hit) return { col, row }; col += cellWidth(g.text) }
+  }
+  return undefined
+}
+
+test('click: a flow node in the panes selects that agent and Details follows', () => {
+  const id = selectableIds(orch!, { view: 'agent', runningOnly: false, rules: [], now: orch!.writtenAt }).find(i => i !== 'main')!
+  const a = orch!.agents.find(x => x.id === id)!
+  const st = state()
+  const at = cellOf(screen(st, 120, 30), `agent:${id}`)!
+  assert.ok(at, 'node on screen')
+  const hit = hitAt(screen(st, 120, 30), at.col + 1, at.row)!
+  const next = { ...st, ...applyHit(hit, st) }
+  assert.equal(next.selectedId, id)
+  assert.ok(texts(screen(next, 120, 30)).some(t => t.includes(`type    ${a.type}`)))
+})
+
+test('click: a Sessions row switches session and resets the selection', () => {
+  const [a, b] = playInstant('multi-session', 0)
+  const pa = `/x/${a!.session.id}.json`, pb = `/x/${b!.session.id}.json`
+  const st = state({ entries: [entry(a!), entry(b!)], current: pa, selectedId: 'x', now: b!.writtenAt })
+  const at = cellOf(screen(st, 120, 30), `session:${pb}`)!
+  assert.ok(at, 'session row on screen')
+  assert.deepEqual(applyHit(hitAt(screen(st, 120, 30), at.col, at.row)!, st), { current: pb, listMode: false, selectedId: undefined })
+})
+
+test('click: the full-screen list opens a session; the single column selects nodes too', () => {
+  const st = state({ listMode: true })
+  const path = `/x/${orch!.session.id}.json`
+  assert.ok(cellOf(screen(st, 120, 30), `session:${path}`), 'list row is clickable')
+  const id = selectableIds(orch!, { view: 'agent', runningOnly: false, rules: [], now: orch!.writtenAt }).find(i => i !== 'main')!
+  assert.ok(cellOf(screen(state(), 80, 24), `agent:${id}`), 'single column node is clickable')
+})
+
+test('click: an unknown or missing target changes nothing', () => {
+  assert.deepEqual(applyHit('other:1', state()), {})
+  assert.equal(hitAt(screen(state(), 120, 30), 0, 0), undefined) // the frame corner
 })

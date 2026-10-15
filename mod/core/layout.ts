@@ -4,7 +4,8 @@ import type { CompiledRule, Pool } from './pools.ts'
 import { resolvePool } from './pools.ts'
 
 export type Fg = 'green' | 'red' | 'yellow' | 'cyan' | 'gray' | 'magenta'
-export interface Seg { text: string; fg?: Fg; bold?: boolean; dim?: boolean; inverse?: boolean }
+/** `hit`: what a click on this text selects in the CLI (`agent:<id>`, `session:<path>`); the band ignores it. */
+export interface Seg { text: string; fg?: Fg; bold?: boolean; dim?: boolean; inverse?: boolean; hit?: string }
 export type Row = Seg[]
 /** `agent` is the flow view (nodes joined by arrows, left to right), the default; `pool` lists the lanes. */
 export type View = 'pool' | 'agent'
@@ -261,7 +262,7 @@ function listLine(a: Agent, now: number, selected: boolean): Row {
   const tool = a.status === 'running' && a.currentTool ? ` ${a.currentTool}` : ''
   return [
     { text: '  ' },
-    { text: `${GLYPH[a.status]} ${label(a)} ${dur(a, now)}`, fg: COLOR[a.status], inverse: selected },
+    { text: `${GLYPH[a.status]} ${label(a)} ${dur(a, now)}`, fg: COLOR[a.status], inverse: selected, hit: `agent:${a.id}` },
     { text: tool, dim: true },
   ]
 }
@@ -280,7 +281,7 @@ function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>, bar
   const tool = !bare && a.status === 'running' && a.currentTool ? ` · ${cap(toolName(a.currentTool), TOOL_CELLS)}` : ''
   const time = a.id === 'main' ? '' : ` ${dur(a, o.now)}`
   const text = cap(n.edge === undefined ? label(a) : branchLabel(a), LABEL_CELLS)
-  return { text: `[${GLYPH[a.status]} ${text}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined }
+  return { text: `[${GLYPH[a.status]} ${text}${tool}${time}]`, fg: COLOR[a.status], inverse: a.id === o.selectedId || undefined, hit: `agent:${a.id}` }
 }
 
 const EDGE = { dim: true } as const
