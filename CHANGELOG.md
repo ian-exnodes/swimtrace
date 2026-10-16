@@ -5,6 +5,8 @@ version is the one in `package.json` and `mod/.claude-plugin/plugin.json`.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-16
+
 ### Added
 
 - `swimtrace` viewer: on a terminal of at least 100×20 it splits into panes, with the flow on the left, Details
@@ -17,6 +19,9 @@ version is the one in `package.json` and `mod/.claude-plugin/plugin.json`.
 
 - The Flow pane title keeps the status markers and the agent count when the project name is long.
 - The flow in the panes no longer jumps at each tool call of main (#1).
+- Windows: `npm i` no longer fails on `chmod`; the plugin and the viewer find `~/.claude/swimtrace` through
+  `USERPROFILE` when `HOME` is unset; project names are cut at `\` too (#3).
+- The version is bumped so `/plugin update` actually delivers these fixes; 0.1.0 installs kept the old plugin code.
 
 ## [0.1.0] - 2026-10-12
 
