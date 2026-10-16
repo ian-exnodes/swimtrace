@@ -21,7 +21,7 @@ let lastWrite = 0
 let timers: Timer[] = []
 
 export async function swimtraceDir($: EngineInterface): Promise<string> {
-  const base = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${(await $.env.get('HOME')) || ''}/.claude`
+  const base = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${(await $.env.get('HOME')) || (await $.env.get('USERPROFILE')) || ''}/.claude`
   return `${base}/swimtrace`
 }
 
@@ -243,7 +243,7 @@ export const register: Register = on => {
         try { rows = layout(picked, opts(Math.max(4, room - buttonRows))) } catch { rows = undefined }
       }
       if (rows === undefined) {
-        if (u.pick !== undefined) note = [{ text: fit(`swimtrace: other session unreadable (${u.pick.split('/').at(-1) ?? u.pick})`, e.props.bodyColumns), dim: true }]
+        if (u.pick !== undefined) note = [{ text: fit(`swimtrace: other session unreadable (${u.pick.split(/[\\/]/).at(-1) ?? u.pick})`, e.props.bodyColumns), dim: true }]
         if (own === undefined) return <Text dimColor>SwimTrace: no session yet.</Text>
         rows = layout(own, opts(Math.max(4, room - buttonRows - (note ? 1 : 0))))
       }

@@ -20,9 +20,10 @@ test('guard reports a throw exactly once and passes args through', () => {
 })
 
 test('empty CLAUDE_CONFIG_DIR / HOME are treated as unset; clean refuses non-absolute roots', () => {
-  assert.equal(swimtraceDir({ CLAUDE_CONFIG_DIR: '', HOME: '/h' }), '/h/.claude/swimtrace')
+  assert.equal(swimtraceDir({ CLAUDE_CONFIG_DIR: '', HOME: '/h' }), join('/h', '.claude', 'swimtrace'))
+  assert.equal(swimtraceDir({ HOME: '', USERPROFILE: 'C:\\Users\\me' }), join('C:\\Users\\me', '.claude', 'swimtrace')) // Windows
   const bad = swimtraceDir({ CLAUDE_CONFIG_DIR: '', HOME: '' })
-  assert.equal(bad, '.claude/swimtrace')
+  assert.equal(bad, join('.claude', 'swimtrace'))
   assert.equal(canClean(bad), false)
   assert.equal(canClean('/x/other'), false)
   assert.equal(canClean('/x/.claude/swimtrace'), true)
@@ -62,4 +63,9 @@ test('flow: --help names the flow/pools toggle and no zoom', async () => {
   try { assert.equal(await main(['--help']), 0) } finally { console.log = log }
   assert.match(out, /g flow\/pools/)
   assert.doesNotMatch(out, /zoom|\+\/-/)
+})
+
+test('a Windows project path shows its last folder', () => {
+  const snap = emptySnapshot({ id: 'sess-win00000', project: 'C:\\work\\proj', startedAt: Date.now() })
+  assert.match(rowText(sessionListRows([{ path: '/x/s.json', snap, stale: false, mtimeMs: 0 }], 0, 60)[1]!), /proj  sess-win/)
 })

@@ -44,7 +44,7 @@ export function sessionPaneRows(entries: SessionEntry[], current: string | undef
   const start = Math.max(0, at - height + 1)
   return entries.slice(start, start + height).map(e => {
     const state = sessionState(e)
-    const name = e.snap.session.project.split('/').filter(Boolean).at(-1) ?? e.snap.session.project
+    const name = e.snap.session.project.split(/[\\/]/).filter(Boolean).at(-1) ?? e.snap.session.project
     return clip([{ text: `${name}  ${e.snap.session.id.slice(0, 8)}  ${state}`, inverse: e.path === current, fg: state === 'live' ? 'cyan' : 'gray', hit: `session:${e.path}` }], width)
   })
 }

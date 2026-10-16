@@ -485,7 +485,7 @@ export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
   const s = asDrawn(snapshot, o.now)
   const header: Row = [
     { text: 'SWIMTRACE', bold: true },
-    { text: `  ${s.session.project.split('/').filter(Boolean).at(-1) ?? s.session.project}  session ${s.session.id.slice(0, 8)}` },
+    { text: `  ${s.session.project.split(/[\\/]/).filter(Boolean).at(-1) ?? s.session.project}  session ${s.session.id.slice(0, 8)}` },
   ]
   if (s.simulated) header.push({ text: ' [SIMULATED]', fg: 'red', bold: true })
   if (isStale(s, o.now)) header.push({ text: ' [STALE]', fg: 'yellow', bold: true })

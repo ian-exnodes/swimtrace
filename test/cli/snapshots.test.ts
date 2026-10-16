@@ -11,8 +11,8 @@ const snap = (id: string, project: string, writtenAt: number, endedAt?: number):
   ({ ...emptySnapshot({ id, project, startedAt: 0, endedAt }), writtenAt })
 
 test('swimtraceDir honours CLAUDE_CONFIG_DIR', () => {
-  assert.equal(swimtraceDir({ CLAUDE_CONFIG_DIR: '/c', HOME: '/h' }), '/c/swimtrace')
-  assert.equal(swimtraceDir({ HOME: '/h' }), '/h/.claude/swimtrace')
+  assert.equal(swimtraceDir({ CLAUDE_CONFIG_DIR: '/c', HOME: '/h' }), join('/c', 'swimtrace'))
+  assert.equal(swimtraceDir({ HOME: '/h' }), join('/h', '.claude', 'swimtrace'))
 })
 
 test('review focus 3 / case 8: a half-written file keeps the last good snapshot', () => {
