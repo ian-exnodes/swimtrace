@@ -4,7 +4,7 @@ import type { Snapshot } from '../mod/core/model.ts'
 import { isStale } from '../mod/core/layout.ts'
 
 export function swimtraceDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(env.CLAUDE_CONFIG_DIR || join(env.HOME || '', '.claude'), 'swimtrace')
+  return join(env.CLAUDE_CONFIG_DIR || join(env.HOME || env.USERPROFILE || '', '.claude'), 'swimtrace')
 }
 
 export function readSnapshot(path: string, lastGood?: Snapshot): { snap?: Snapshot; error?: string } {
