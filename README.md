@@ -52,11 +52,11 @@ On a terminal of at least 100×20 the viewer splits into panes:
 ```
 ┌─ SWIMTRACE  project-alpha  session sim-fano   3 agents ──────────┬─ Details ─────────────────────┐
 │                                                                  │ map auth module               │
-│ [● request]─▶[✓ plan 0s]─▶[⑂ route]                              │ status  ● running 5s          │
+│ [● request]─►[✓ plan 0s]─►[⑂ route]                              │ status  ● running 5s          │
 │   ┌────────────────────────┘                                     │ type    Explore               │
-│   ├─ Explore ──▶[● map auth module · Grep 5s]                    │ pool    Explore (type)        │
-│   ├─ Explore ──▶[✓ map billing module 5s]                        │ parent  main                  │
-│   └─ Explore ──▶[● map api routes · Glob 5s]                     │ model   —                     │
+│   ├─ Explore ──►[● map auth module · Grep 5s]                    │ pool    Explore (type)        │
+│   ├─ Explore ──►[✓ map billing module 5s]                        │ parent  main                  │
+│   └─ Explore ──►[● map api routes · Glob 5s]                     │ model   —                     │
 │ Progress  2 running · 1 done · 0 failed                          │ tool    Grep                  │
 │                                                                  │ tools   Grep                  │
 │                                                                  │ start   00:00:00  end —       │
@@ -210,16 +210,16 @@ grows back. From about 140 columns the flow fits on one row. With `--no-mouse`, 
   ```
   SWIMTRACE  proj  session e57186f5   5 agents
 
-  [✓ request]─▶[✓ classify: complex 8s]─▶[⑂ route]─┬─ Explore ───▶[✓ [T1] list files 13s]
-                                                   ├─ Explore ───▶[✓ [T2] count tests 10s]
-                                                   └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
-                                                                                └─▶[✗ review:perf 42s]
+  [✓ request]─►[✓ classify: complex 8s]─►[⑂ route]─┬─ Explore ───►[✓ [T1] list files 13s]
+                                                   ├─ Explore ───►[✓ [T2] count tests 10s]
+                                                   └─ workflow ──►[◆ review-wf]─┬─►[✓ review:bugs 41s]─ ─►[● verify:bugs · Grep 12s]
+                                                                                └─►[✗ review:perf 42s]
   Progress  tasks 3/5 done · 1 running · 3 done · 1 failed
   ```
 
   - **request** is the main conversation's turn: `[● request · Bash]` while it runs (with its current tool),
     `[✓ request]` once the turn is over. It stands for main: select it to see main's details. While main is still
-    planning (no agent dispatched yet in this turn) the flow shows `[● request · Read]─▶[● plan 3s]`, with no route.
+    planning (no agent dispatched yet in this turn) the flow shows `[● request · Read]─►[● plan 3s]`, with no route.
     A turn that ends without dispatching anything is not drawn.
   - **plan / classify** is the planning phase, from the start of the turn to its first dispatch: `[✓ plan 8s]`. If an
     Agent call's description carries a `[class:<word>]` tag (say `[T1] list files [class:complex]`), the node reads
@@ -237,10 +237,10 @@ grows back. From about 140 columns the flow fits on one row. With `--no-mouse`, 
     agent still running is drawn in full instead, so that agent stays in sight.
 
   An agent node is `[status label · current tool duration]`. A solid arrow means who started whom. `◆` is a workflow
-  run: its agents hang off it. A dashed arrow (`─ ─▶`) is step order that SwimTrace infers from workflow labels shaped
+  run: its agents hang off it. A dashed arrow (`─ ─►`) is step order that SwimTrace infers from workflow labels shaped
   `<step>:<key>` (`verify:bugs` comes after `review:bugs`). It is a guess from the labels, not something Claude Code
   reports, and the details line says so. What one agent handed another (data flow) cannot be seen. Below 60 columns
-  the flow becomes an indented tree (request, then plan, then route, then `Explore ▶ [agent]`). `g` switches to the
+  the flow becomes an indented tree (request, then plan, then route, then `Explore ► [agent]`). `g` switches to the
   pools view (lanes, see below) and back.
 - In Claude Code the flow appears above the prompt once a subagent runs; `/swimtrace` hides or shows it, and
   ctrl+x ctrl+a collapses it. Keys (button hotkeys, after a click on the band or ctrl+x tab): `g` flow/pools,

@@ -289,7 +289,7 @@ function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>, bar
 const EDGE = { dim: true } as const
 
 /**
- * The flow left to right: the stage nodes joined by `─▶`, then the route's branches (`stacked`: from two rows down, at
+ * The flow left to right: the stage nodes joined by `─►`, then the route's branches (`stacked`: from two rows down, at
  * column 2, a `┌──┘` row joining them to the route); children start 4 cells after their parent, a chained agent on the parent's own row.
  */
 function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>, stacked = false, bare = false): Row[] {
@@ -301,7 +301,7 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
     const w = cellWidth(seg.text)
     put(row, col, seg)
     if (n.chain === undefined) return n.kids.length === 0 ? 1 : fan(n.kids, row, col + w + 1, true) - row
-    put(row, col + w, { text: '─ ─▶', ...EDGE })
+    put(row, col + w, { text: '─ ─►', ...EDGE })
     const used = draw(n.chain, row, col + w + 4)
     if (n.kids.length === 0) return used
     // ponytail: rare (a chained agent with children of its own): they go below everything chained, connector under the node
@@ -309,7 +309,7 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
     return fan(n.kids, row + used, col + 1, false) - row
   }
   // Siblings hang off the bar at column x; the first shares its parent's row when `sameRow`. Returns the next free row.
-  // Labelled siblings (the route's branches) carry `─ <label> ──▶`, labels padded so the arrows line up.
+  // Labelled siblings (the route's branches) carry `─ <label> ──►`, labels padded so the arrows line up.
   const fan = (kids: FNode[], first: number, x: number, sameRow: boolean): number => {
     const labels = kids.map(k => (k.edge === undefined ? undefined : cap(k.edge, BRANCH_CELLS)))
     const lw = Math.max(0, ...labels.map(l => cellWidth(l ?? '')))
@@ -317,7 +317,7 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
     kids.forEach((k, i) => {
       const last = i === kids.length - 1
       const l = labels[i]
-      const tail = l === undefined ? '─▶' : `─ ${l} ${'─'.repeat(lw - cellWidth(l) + 2)}▶`
+      const tail = l === undefined ? '─►' : `─ ${l} ${'─'.repeat(lw - cellWidth(l) + 2)}►`
       if (sameRow && i === 0) put(r, x - 1, { text: (last ? '──' : '─┬') + tail, ...EDGE })
       else put(r, x, { text: (last ? '└' : '├') + tail, ...EDGE })
       const h = draw(k, r, x + 1 + cellWidth(tail))
@@ -328,7 +328,7 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
   }
   let col = 0
   lead.forEach((seg, i) => {
-    if (i > 0) { put(0, col, { text: '─▶', ...EDGE }); col += 2 }
+    if (i > 0) { put(0, col, { text: '─►', ...EDGE }); col += 2 }
     put(0, col, seg)
     col += cellWidth(seg.text)
   })
@@ -354,17 +354,17 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
 
 /**
  * The flow below COMPACT_BELOW columns: one node per line, indented, each stage the only child of the one before;
- * a branch shows its label before the agent; a chained agent is its predecessor's `┄▶` child.
+ * a branch shows its label before the agent; a chained agent is its predecessor's `┄►` child.
  */
 function flowTree(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>): Row[] {
-  const out: Row[] = lead.map((seg, i) => [{ text: i === 0 ? '' : `${'  '.repeat(i)}└▶ `, ...EDGE }, seg])
+  const out: Row[] = lead.map((seg, i) => [{ text: i === 0 ? '' : `${'  '.repeat(i)}└► `, ...EDGE }, seg])
   const walk = (n: FNode, depth: number, conn: string) => {
-    const branch = n.edge === undefined ? '' : `${cap(n.edge, BRANCH_CELLS)} ▶ `
+    const branch = n.edge === undefined ? '' : `${cap(n.edge, BRANCH_CELLS)} ► `
     out.push([{ text: '  '.repeat(depth) + conn + branch, ...EDGE }, nodeSeg(n, o, workflows)])
     const subs = [...(n.chain ? [{ k: n.chain, dashed: true }] : []), ...n.kids.map(k => ({ k, dashed: false }))]
-    subs.forEach(({ k, dashed }, i) => walk(k, depth + 1, dashed ? '┄▶ ' : i === subs.length - 1 ? '└▶ ' : '├▶ '))
+    subs.forEach(({ k, dashed }, i) => walk(k, depth + 1, dashed ? '┄► ' : i === subs.length - 1 ? '└► ' : '├► '))
   }
-  branches.forEach((k, i) => walk(k, lead.length, i === branches.length - 1 ? '└▶ ' : '├▶ '))
+  branches.forEach((k, i) => walk(k, lead.length, i === branches.length - 1 ? '└► ' : '├► '))
   return out
 }
 

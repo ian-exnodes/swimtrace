@@ -5,6 +5,13 @@ version is the one in `package.json` and `mod/.claude-plugin/plugin.json`.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-16
+
+### Fixed
+
+- The flow's arrows use `►` (U+25BA) instead of `▶` (U+25B6), which common Windows terminal fonts lack and drew
+  as a box.
+
 ## [0.1.1] - 2026-10-16
 
 ### Added
