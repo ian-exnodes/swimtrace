@@ -5,6 +5,14 @@ version is the one in `package.json` and `mod/.claude-plugin/plugin.json`.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-19
+
+### Added
+
+- `swimtrace update`: runs `git pull` and `npm install` in the viewer's own clone.
+- The plugin stamps its version into each session file (`by`), and the viewer shows a yellow
+  `swimtrace <its version> is older than the plugin (<version>): run swimtrace update` when a newer plugin wrote one.
+
 ## [0.1.3] - 2026-10-19
 
 ### Fixed

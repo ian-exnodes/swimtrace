@@ -29,6 +29,10 @@ SwimTrace has two parts. The **plugin** draws the flow above the prompt inside C
    It is not on the npm registry yet, and `npm i -g github:ian-exnodes/swimtrace` fails (npm skips the build tools
    when it prepares a git dependency globally).
 
+   **Updating.** The plugin and the viewer update separately. The plugin: `claude plugin marketplace update swimtrace`,
+   then `claude plugin update swimtrace@swimtrace`, then restart Claude Code. The viewer: `swimtrace update`, which
+   runs `git pull` and `npm install` in the clone; the viewer also says so when the plugin is newer than it.
+
 3. Try it without spending tokens:
 
    ```
@@ -78,7 +82,8 @@ On a terminal of at least 100×20 the viewer splits into panes:
 - **Details** (top right): everything known about the selected agent: label, status, type, pool, parent, model,
   current tool, tools used, start and end time, and why it ended. With nothing selected it shows main.
 - **Sessions** (bottom right): the recorded sessions, the one on screen highlighted.
-- **Key bar** (bottom): the keys below. A problem in `config.json` replaces it with a yellow warning.
+- **Key bar** (bottom): the keys below. A yellow line replaces it when `config.json` has a problem, or when the
+  plugin is newer than the viewer (`run swimtrace update`).
 
 | Key / mouse | What it does |
 |---|---|
