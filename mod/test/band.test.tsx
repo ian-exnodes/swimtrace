@@ -10,9 +10,9 @@ const RUN = { command: 'swimtrace', args: '', origin: { kind: 'composer' }, pres
 const SPAWN = { tool_use_id: 'tu-1', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'm', background: false, fork: false } as const
 
 // The test's hooks stand for the engine; the kit takes them only before its first call on `$`.
-async function boot($: any, on: any, surface: 'terminal' | 'desktop', hooks: () => void = () => {}, files: Record<string, string> = {}, spawn = true) {
+async function boot($: any, on: any, surface: 'terminal' | 'desktop', hooks: () => void = () => {}, files: Record<string, string> = {}, spawn = true, env: Record<string, string> = { HOME: '/h' }) {
   const clock = mock.clock(on, { now: 10_000 })
-  mock.env(on, { HOME: '/h' })
+  mock.env(on, env)
   on('session.start', ($: any, e: any) => ({ cwd: e.cwd }))
   on('fs.write', () => ({ value: undefined }))
   on('fs.read', ($: any, e: any) => (e.path in files ? { value: files[e.path] } : { deny: 'ENOENT' }))
@@ -34,7 +34,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: /^ {3}1 agent$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^\[● scan repo 0s\]$/ })).toBeDefined() // the flow is the default
     expect(await ui.find({ type: 'Text', text: /^\[◉ request\]$/ })).toBeDefined() // no turn seen: the stages of a turn of its own
-    expect(await ui.find({ type: 'Text', text: /^─── Explore ──►$/ })).toBeDefined() // the route's branch, labelled by type
+    expect(await ui.find({ type: 'Text', text: /^─── Explore ──▶$/ })).toBeDefined() // the route's branch, labelled by type
     expect(await ui.find({ type: 'Text', text: /^ {2}1 running · 0 done · 0 failed$/ })).toBeDefined() // the Progress row
     expect(await ui.find({ type: 'Text', text: /Explore · type/ })).toBeUndefined()
     expect((await ui.find({ type: 'Button', key: 'view' }))?.text).toBe('pools')
@@ -219,4 +219,12 @@ test('a short, narrow band draws its buttons first, inside the rows it may take'
   expect(drawn.indexOf('"hotkey":"g"')).toBeLessThan(drawn.indexOf('SWIMTRACE'))
   expect(await ui.find({ type: 'Text', text: /more rows/ })).toBeDefined() // the rows were cut to fit, not the buttons
   await ui.unmount()
+})
+
+test('on Windows the band draws the symbols Windows fonts have', async ($, on) => {
+  await boot($, on, 'terminal', () => {}, {}, true, { USERPROFILE: 'C:\\Users\\me', OS: 'Windows_NT' })
+  const ui = await $.ui.mount({ plugin: 'swimtrace', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /^\[• request\]$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^─── Explore ──►$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /[▶◉]/ })).toBeUndefined()
 })

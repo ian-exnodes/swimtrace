@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { emptySnapshot } from '../../mod/core/model.ts'
 import { reduceAll } from '../../mod/core/reducer.ts'
 import { compileRules } from '../../mod/core/pools.ts'
-import { cellWidth, detailLines, fmtDuration, isStale, lanes, layout, rowText, selectableIds, type LayoutOpts } from '../../mod/core/layout.ts'
+import { cellWidth, detailLines, fmtDuration, isStale, lanes, layout, rowText, safeRows, selectableIds, wantSafe, type LayoutOpts, type Row } from '../../mod/core/layout.ts'
 
 // Written at the default `now` (100 s), so the session is live, not stale, unless a test says otherwise.
 const snap = (evs: object[], simulated = false) =>
@@ -67,7 +67,7 @@ test('runningOnly hides finished agents; selectableIds follows display order', (
 test('flow view draws a child to the right of its parent, joined by an arrow', () => {
   const s = snap([spawn('p', 1), spawn('c', 2, { parentId: 'p' })])
   const t = text(layout(s, opts()))
-  assert.equal(t[2], '[◉ request]─►[✓ plan]─►[⑂ route]─── Explore ──►[● p 1m39s]───►[● c 1m39s]')
+  assert.equal(t[2], '[◉ request]─▶[✓ plan]─▶[⑂ route]─── Explore ──▶[● p 1m39s]───▶[● c 1m39s]')
 })
 
 // The approved mockup: main runs Bash; a workflow run (review:bugs → verify:bugs chained by label, review:perf failed)
@@ -90,10 +90,10 @@ const mockup = () => {
   return { ...s, session: { ...s.session, id: 'e57186f5-0000-4000-8000-000000000000', project: '/w/proj' } }
 }
 const MOCKUP_BODY = [
-  '[● request · Bash]─►[✓ plan 0s]─►[⑂ route]─┬─ workflow ──►[◆ review-wf]─┬─►[✓ review:bugs 41s]─ ─►[● verify:bugs · Grep 12s]',
-  '                                           │                            └─►[✗ review:perf 42s]',
-  '                                           ├─ Explore ───►[✓ list files in src 13s]',
-  '                                           └─ Explore ───►[✓ count test files 10s]',
+  '[● request · Bash]─▶[✓ plan 0s]─▶[⑂ route]─┬─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]',
+  '                                           │                            └─▶[✗ review:perf 42s]',
+  '                                           ├─ Explore ───▶[✓ list files in src 13s]',
+  '                                           └─ Explore ───▶[✓ count test files 10s]',
 ]
 
 test('flow (a): the flow mockup scenario: a workflow run is one ◆ branch of the route, its steps chained', () => {
@@ -114,10 +114,10 @@ test('flow (b): agents of one workflow run share a single ◆ node, at its earli
   assert.equal(t.filter(l => l.includes('◆')).length, 1)
   assert.equal(t.join('\n').match(/◆ wf_9/g)!.length, 1) // no workflow name known: the run id
   assert.deepEqual(t.slice(2, -1), [
-    '[◉ request]─►[✓ plan]─►[⑂ route]─┬─ Explore ───►[● x 1m39s]',
-    '                                 ├─ workflow ──►[◆ wf_9]─┬─►[● agent 1 1m39s]',
-    '                                 │                       └─►[● agent 2 1m39s]',
-    '                                 └─ Explore ───►[● y 1m39s]',
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─┬─ Explore ───▶[● x 1m39s]',
+    '                                 ├─ workflow ──▶[◆ wf_9]─┬─▶[● agent 1 1m39s]',
+    '                                 │                       └─▶[● agent 2 1m39s]',
+    '                                 └─ Explore ───▶[● y 1m39s]',
   ])
 })
 
@@ -131,10 +131,10 @@ test('flow (c): a step agent whose key matches no earlier step is a child of the
   ])
   const t = text(layout(s, opts()))
   assert.deepEqual(t.slice(2, -1), [
-    '[◉ request]─►[✓ plan]─►[⑂ route]─┬─ workflow ──►[◆ wf]─┬─►[● review:a 1m39s]─ ─►[● verify:a 1m39s]',
-    '                                 │                     ├─►[● verify:b 1m39s]',
-    '                                 │                     └─►[● review:b 1m39s]',
-    '                                 └─ Explore ───►[● plain:a 1m39s]',
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─┬─ workflow ──▶[◆ wf]─┬─▶[● review:a 1m39s]─ ─▶[● verify:a 1m39s]',
+    '                                 │                     ├─▶[● verify:b 1m39s]',
+    '                                 │                     └─▶[● review:b 1m39s]',
+    '                                 └─ Explore ───▶[● plain:a 1m39s]',
   ])
 })
 
@@ -145,8 +145,8 @@ test('flow: a chained node that also has children draws them below it, connector
     spawn('v', 3, { workflowRunId: 'wf', description: 'verify:a' }),
   ])
   assert.deepEqual(text(layout(s, opts())).slice(2, -1), [
-    '[◉ request]─►[✓ plan]─►[⑂ route]─── workflow ──►[◆ wf]───►[● review:a 1m39s]─ ─►[● verify:a 1m39s]',
-    '                                                           └─►[● kid 1m39s]',
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─── workflow ──▶[◆ wf]───▶[● review:a 1m39s]─ ─▶[● verify:a 1m39s]',
+    '                                                           └─▶[● kid 1m39s]',
   ])
 })
 
@@ -155,14 +155,14 @@ test('flow (d): below 60 columns the flow is an indented tree, one node per line
   assert.deepEqual(t.slice(1), [
     '',
     '[● request · Bash]',
-    '  └► [✓ plan 0s]',
-    '    └► [⑂ route]',
-    '      ├► workflow ► [◆ review-wf]',
-    '        ├► [✓ review:bugs 41s]',
-    '          ┄► [● verify:bugs · Grep 12s]',
-    '        └► [✗ review:perf 42s]',
-    '      ├► Explore ► [✓ list files in src 13s]',
-    '      └► Explore ► [✓ count test files 10s]',
+    '  └▶ [✓ plan 0s]',
+    '    └▶ [⑂ route]',
+    '      ├▶ workflow ▶ [◆ review-wf]',
+    '        ├▶ [✓ review:bugs 41s]',
+    '          ┄▶ [● verify:bugs · Grep 12s]',
+    '        └▶ [✗ review:perf 42s]',
+    '      ├▶ Explore ▶ [✓ list files in src 13s]',
+    '      └▶ Explore ▶ [✓ count test files 10s]',
     'Progress  1 running · 3 done · 1 failed',
   ])
   assert.ok(t.every(l => cellWidth(l) <= 59))
@@ -221,9 +221,9 @@ test('flow (h): runningOnly hides main; its running children are still drawn, gr
     spawn('c', 6, { parentId: 'a' })]) // its parent is hidden: drawn as main's child would be
   const t = text(layout(s, opts({ runningOnly: true })))
   assert.deepEqual(t.slice(2, -1), [ // main hidden: its request node still draws, not selectable
-    '[◉ request]─►[✓ plan]─►[⑂ route]─┬─ Explore ───►[● b 1m39s]',
-    '                                 ├─ workflow ──►[◆ wf]───►[● review:x 1m39s]─ ─►[● verify:x 1m39s]',
-    '                                 └─ Explore ───►[● c 1m39s]',
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─┬─ Explore ───▶[● b 1m39s]',
+    '                                 ├─ workflow ──▶[◆ wf]───▶[● review:x 1m39s]─ ─▶[● verify:x 1m39s]',
+    '                                 └─ Explore ───▶[● c 1m39s]',
   ])
   assert.deepEqual(selectableIds(s, { view: 'agent', runningOnly: true, rules: [] }), ['b', 'w1', 'w2', 'c'])
 })
@@ -257,9 +257,9 @@ test('height limit keeps the header and says how many rows were cut', () => {
 
 test('flow: a row wider than the screen is cut with a trailing …', () => {
   const t = text(layout(mockup(), opts({ width: 70 })))
-  assert.equal(t[2], '[● request · Bash]─►[✓ plan 0s]─►[⑂ route]') // too wide for one row: stacked
+  assert.equal(t[2], '[● request · Bash]─▶[✓ plan 0s]─▶[⑂ route]') // too wide for one row: stacked
   assert.equal(t[3], '  ┌───────────────────────────────┘')
-  assert.equal(t[4], '  ├─ workflow ──►[◆ review-wf]─┬─►[✓ review:bugs 41s]─ ─►[● verify:bu…')
+  assert.equal(t[4], '  ├─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bu…')
   assert.ok(t.every(l => cellWidth(l) <= 70))
 })
 
@@ -323,10 +323,10 @@ test('fix 1: long labels and MCP tool names are capped in the node, at both widt
   ])
   const node = `[● ${'L'.repeat(27)}… · find_referenc… 1m39s]`
   const wide = text(layout(s, opts({ width: 140 })))
-  assert.equal(wide[2], `[● request · Bash]─►[✓ plan 0s]─►[⑂ route]─── workflow ──►[◆ review-wf]───►${node}`) // 126 cells, uncut
+  assert.equal(wide[2], `[● request · Bash]─▶[✓ plan 0s]─▶[⑂ route]─── workflow ──▶[◆ review-wf]───▶${node}`) // 126 cells, uncut
   assert.ok(cellWidth(wide[2]!) <= 140 && !wide[2]!.endsWith('…]…'))
-  const narrow = text(layout(s, opts({ width: 59 }))).find(l => l.startsWith('        └► '))!
-  assert.equal(narrow, `        └► ${node}`.slice(0, 58) + '…') // capped in the tree too, then cut to the width
+  const narrow = text(layout(s, opts({ width: 59 }))).find(l => l.startsWith('        └▶ '))!
+  assert.equal(narrow, `        └▶ ${node}`.slice(0, 58) + '…') // capped in the tree too, then cut to the width
   const d = text(layout(s, opts({ selectedId: 'x', expanded: true, width: 200 })))
   assert.ok(d.some(l => l.startsWith(`id x  label ${long}  parent main`)))
   // a short MCP name is only unprefixed; a plain tool name is untouched
@@ -338,25 +338,25 @@ test('fix 1: long labels and MCP tool names are capped in the node, at both widt
 test('fix 2: below 8 rows the blank row under the header is dropped', () => {
   const s = snap([spawn('a', 1)])
   assert.equal(text(layout(s, opts({ height: 8 })))[1], '')
-  assert.deepEqual(text(layout(s, opts({ height: 7 }))).slice(1, 2), ['[◉ request]─►[✓ plan]─►[⑂ route]─── Explore ──►[● a 1m39s]'])
+  assert.deepEqual(text(layout(s, opts({ height: 7 }))).slice(1, 2), ['[◉ request]─▶[✓ plan]─▶[⑂ route]─── Explore ──▶[● a 1m39s]'])
   assert.deepEqual(text(layout(s, opts({ height: 7, view: 'pool' }))).slice(1, 2), ['MAIN · main'])
 })
 
 test('fix 3: emoji-presentation symbols take two cells; the layout\'s own glyphs take one', () => {
   for (const e of ['✅', '⚡', '⭐', '❌', '☕', '✨', '❓', '⬛', '⌛']) assert.equal(cellWidth(e), 2, e)
-  for (const g of ['●', '◌', '◉', '⑂', '✓', '✗', '■', '◆', '►', '─', '│', '├', '└', '┬', '┄', '…', '·', '?']) assert.equal(cellWidth(g), 1, g)
+  for (const g of ['●', '◌', '◉', '⑂', '✓', '✗', '■', '◆', '▶', '─', '│', '├', '└', '┬', '┄', '…', '·', '?']) assert.equal(cellWidth(g), 1, g)
   const s = snap([spawn('p', 1, { description: '✅ p' }), spawn('a', 2, { parentId: 'p' }), spawn('b', 3, { parentId: 'p' })])
   assert.deepEqual(text(layout(s, opts())).slice(2, -1), [
-    '[◉ request]─►[✓ plan]─►[⑂ route]─── Explore ──►[● ✅ p 1m39s]─┬─►[● a 1m39s]',
-    `${' '.repeat(62)}└─►[● b 1m39s]`, // node at 47, 14 cells wide (✅ is 2): the bar at 47 + 14 + 1
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─── Explore ──▶[● ✅ p 1m39s]─┬─▶[● a 1m39s]',
+    `${' '.repeat(62)}└─▶[● b 1m39s]`, // node at 47, 14 cells wide (✅ is 2): the bar at 47 + 14 + 1
   ])
 })
 
 test('fix 4: agents in a parentId cycle are still drawn, under main, and selectable', () => {
   const s = snap([spawn('a', 1, { parentId: 'b' }), spawn('b', 2, { parentId: 'a' }), spawn('c', 3)])
   assert.deepEqual(text(layout(s, opts())).slice(2, -1), [
-    '[◉ request]─►[✓ plan]─►[⑂ route]─┬─ Explore ──►[● c 1m39s]',
-    '                                 └─ Explore ──►[● a 1m39s]───►[● b 1m39s]',
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─┬─ Explore ──▶[● c 1m39s]',
+    '                                 └─ Explore ──▶[● a 1m39s]───▶[● b 1m39s]',
   ])
   assert.deepEqual(selectableIds(s, { view: 'agent', runningOnly: false, rules: [] }), ['main', 'c', 'a', 'b'])
 })
@@ -385,10 +385,10 @@ const stagesMockup = (extra: object[] = []) => {
 // The approved mockup's rows, but for two things it cannot hold together (see the stages report):
 // its `├`/`└` sit one column right of its own `┬`; here they hang under it, as everywhere else in the flow.
 const STAGES_BODY = [
-  '[✓ request]─►[✓ classify: complex 8s]─►[⑂ route]─┬─ Explore ───►[✓ [T1] list files 13s]',
-  '                                                 ├─ Explore ───►[✓ [T2] count tests 10s]',
-  '                                                 └─ workflow ──►[◆ review-wf]─┬─►[✓ review:bugs 41s]─ ─►[● verify:bugs · Grep 12s]',
-  '                                                                              └─►[✗ review:perf 42s]',
+  '[✓ request]─▶[✓ classify: complex 8s]─▶[⑂ route]─┬─ Explore ───▶[✓ [T1] list files 13s]',
+  '                                                 ├─ Explore ───▶[✓ [T2] count tests 10s]',
+  '                                                 └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]',
+  '                                                                              └─▶[✗ review:perf 42s]',
 ]
 
 test('stages: the mockup scenario draws request → classify → route with labelled branches and a Progress row', () => {
@@ -401,25 +401,25 @@ test('stages: the mockup scenario draws request → classify → route with labe
   assert.equal(t[7], 'Tasks')
   // while main runs, the request node shows it and its current tool
   const live = text(layout(stagesMockup(), opts({ width: 140 })))
-  assert.equal(live[2], '[● request · Bash]─►[✓ classify: complex 8s]─►[⑂ route]─┬─ Explore ───►[✓ [T1] list files 13s]')
+  assert.equal(live[2], '[● request · Bash]─▶[✓ classify: complex 8s]─▶[⑂ route]─┬─ Explore ───▶[✓ [T1] list files 13s]')
   const rows = layout(stagesMockup(), opts({ width: 140, selectedId: 'main' }))
   const seg = (re: RegExp) => rows.flat().find(g => re.test(g.text))!
   assert.equal(seg(/^\[● request/).inverse, true)
   assert.equal(seg(/^\[● request/).fg, 'cyan')
   assert.equal(seg(/^\[✓ classify/).fg, 'green')
   assert.equal(seg(/^\[⑂ route\]$/).bold, true)
-  assert.equal(seg(/Explore ───►$/).dim, true) // the branch label is part of the dim edge
+  assert.equal(seg(/Explore ───▶$/).dim, true) // the branch label is part of the dim edge
 })
 
 test('stages: no [class:…] tag gives `plan <duration>`; the tag is stripped from labels in every view and in details', () => {
   const s = snap([{ kind: 'mainTurn', at: 1_000, phase: 'start' }, spawn('a', 9_000, { description: 'scan [class:quick] repo' }), spawn('b', 9_500)])
   const t = text(layout(s, opts()))
-  assert.match(t[2]!, /^\[● request\]─►\[✓ classify: quick 8s\]─►\[⑂ route\]─┬─ Explore ──►\[● scan repo 1m31s\]$/)
+  assert.match(t[2]!, /^\[● request\]─▶\[✓ classify: quick 8s\]─▶\[⑂ route\]─┬─ Explore ──▶\[● scan repo 1m31s\]$/)
   assert.ok(!t.join('\n').includes('[class:'))
   assert.ok(text(layout(s, opts({ view: 'pool' }))).includes('  ● scan repo 1m31s'))
   assert.ok(text(layout(s, opts({ selectedId: 'a', expanded: true }))).some(l => l.startsWith('id a  label scan repo  parent main')))
   const plain = snap([{ kind: 'mainTurn', at: 1_000, phase: 'start' }, spawn('a', 9_000)])
-  assert.match(text(layout(plain, opts()))[2]!, /^\[● request\]─►\[✓ plan 8s\]─►\[⑂ route\]─── Explore ──►\[● a 1m31s\]$/)
+  assert.match(text(layout(plain, opts()))[2]!, /^\[● request\]─▶\[✓ plan 8s\]─▶\[⑂ route\]─── Explore ──▶\[● a 1m31s\]$/)
   // a description that is only the tag shows the agent type
   assert.match(text(layout(snap([spawn('x', 1, { description: '[class:x]' })]), opts()))[2]!, /\[● Explore 1m39s\]$/)
 })
@@ -437,7 +437,7 @@ test('stages: an earlier turn is one dim line under Progress; its agents are not
   const rows = layout(s, opts())
   const t = text(rows)
   assert.deepEqual(t.slice(2, 5), [
-    '[● request]─►[✓ plan 1s]─►[⑂ route]─── Explore ──►[● c 1m09s]',
+    '[● request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● c 1m09s]',
     'Progress  1 running · 1 done · 1 failed · 1 stopped',
     '◉ request #1 · 3 agents ✗ 1 failed ■ 1 stopped 12s',
   ])
@@ -461,7 +461,7 @@ test('fix 1: at most 3 earlier-turn lines, then how many more; Progress stays in
   }
   const t = text(layout(snap(evs), opts({ width: 120, height: 9 })))
   assert.deepEqual(t.slice(2), [
-    '[✓ request]─►[✓ plan 0s]─►[⑂ route]─── Explore ──►[✓ a7 0s]',
+    '[✓ request]─▶[✓ plan 0s]─▶[⑂ route]─── Explore ──▶[✓ a7 0s]',
     'Progress  0 running · 7 done · 1 failed',
     '◉ request #7 · 1 agent ✓ 0s',
     '◉ request #6 · 1 agent ✓ 0s',
@@ -476,16 +476,16 @@ test('fix 2: while main runs, its newest turn is drawn even before a dispatch: p
     { kind: 'mainTurn', at: 6_000, phase: 'end' }, { kind: 'mainTurn', at: 97_000, phase: 'start' }, { kind: 'toolCall', at: 98_000, agentId: 'main', tool: 'Read' },
   ]
   const t = text(layout(snap(base), opts()))
-  assert.deepEqual(t.slice(2, 5), ['[● request · Read]─►[● plan 3s]', 'Progress  0 running · 1 done · 0 failed', '◉ request #1 · 1 agent ✓ 5s'])
+  assert.deepEqual(t.slice(2, 5), ['[● request · Read]─▶[● plan 3s]', 'Progress  0 running · 1 done · 0 failed', '◉ request #1 · 1 agent ✓ 5s'])
   assert.equal(layout(snap(base), opts()).flat().find(g => g.text === '[● plan 3s]')!.fg, 'cyan')
   assert.deepEqual(selectableIds(snap(base), { view: 'agent', runningOnly: false, rules: [] }), ['main'])
-  assert.deepEqual(text(layout(snap(base), opts({ width: 59 }))).slice(2, 4), ['[● request · Read]', '  └► [● plan 3s]'])
+  assert.deepEqual(text(layout(snap(base), opts({ width: 59 }))).slice(2, 4), ['[● request · Read]', '  └▶ [● plan 3s]'])
   // its first dispatch: classify and route
   const sent = snap([...base, spawn('b', 99_000, { description: 'x [class:quick]' })])
-  assert.match(text(layout(sent, opts()))[2]!, /^\[● request · Read\]─►\[✓ classify: quick 2s\]─►\[⑂ route\]─── Explore ──►\[● x 1s\]$/)
+  assert.match(text(layout(sent, opts()))[2]!, /^\[● request · Read\]─▶\[✓ classify: quick 2s\]─▶\[⑂ route\]─── Explore ──▶\[● x 1s\]$/)
   // ended with no dispatch: gone, never a line of its own; the older turn's request is done, not live
   const empty = snap([...base, { kind: 'mainTurn', at: 99_000, phase: 'end' }])
-  assert.deepEqual(text(layout(empty, opts())).slice(2), ['[✓ request]─►[✓ plan 1s]─►[⑂ route]─── Explore ──►[✓ a 3s]', 'Progress  0 running · 1 done · 0 failed'])
+  assert.deepEqual(text(layout(empty, opts())).slice(2), ['[✓ request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[✓ a 3s]', 'Progress  0 running · 1 done · 0 failed'])
 })
 
 test('fix 2 and 5: an earlier turn with a running agent is drawn in full, its request done, its agents selectable', () => {
@@ -495,10 +495,10 @@ test('fix 2 and 5: an earlier turn with a running agent is drawn in full, its re
     { kind: 'mainTurn', at: 21_000, phase: 'end' }, { kind: 'mainTurn', at: 95_000, phase: 'start' }, { kind: 'toolCall', at: 96_000, agentId: 'main', tool: 'Bash' },
   ])
   assert.deepEqual(text(layout(s, opts())).slice(2), [
-    '[● request · Bash]─►[● plan 5s]',
+    '[● request · Bash]─▶[● plan 5s]',
     'Progress  1 running · 1 done · 0 failed',
     '◉ request #2 · 1 agent ✓ 11s',
-    '[✓ request]─►[✓ plan 1s]─►[⑂ route]─── Explore ──►[● bg 1m38s]',
+    '[✓ request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● bg 1m38s]',
   ])
   assert.deepEqual(selectableIds(s, { view: 'agent', runningOnly: false, rules: [] }), ['main', 'bg'])
 })
@@ -508,16 +508,16 @@ test('fix 3: a pipeline too wide for one row stacks its branches under the stage
   const o = { view: 'agent' as const, runningOnly: false, rules: [], now: 100_000 }
   const t = text(layout(s, opts({ width: 100 })))
   assert.deepEqual(t.slice(2, 9), [
-    '[● request · Bash]─►[✓ classify: complex 8s]─►[⑂ route]',
+    '[● request · Bash]─▶[✓ classify: complex 8s]─▶[⑂ route]',
     '  ┌────────────────────────────────────────────┘', // joins the branches to the route: its ┘ sits under the ⑂
-    '  ├─ Explore ───►[✓ [T1] list files 13s]',
-    '  ├─ Explore ───►[✓ [T2] count tests 10s]',
-    '  └─ workflow ──►[◆ review-wf]─┬─►[✓ review:bugs 41s]─ ─►[● verify:bugs · Grep 12s]',
-    '                               └─►[✗ review:perf 42s]',
+    '  ├─ Explore ───▶[✓ [T1] list files 13s]',
+    '  ├─ Explore ───▶[✓ [T2] count tests 10s]',
+    '  └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]',
+    '                               └─▶[✗ review:perf 42s]',
     'Progress  tasks 3/5 done · 1 running · 3 done · 1 failed',
   ])
   assert.equal(text(layout(s, opts({ width: 140 })))[2], STAGES_BODY[0]!.replace('[✓ request]', '[● request · Bash]'))
-  assert.match(text(layout(s, opts({ width: 140 })))[2]!, /─┬─ Explore ───►\[✓ \[T1\]/) // fits: one row
+  assert.match(text(layout(s, opts({ width: 140 })))[2]!, /─┬─ Explore ───▶\[✓ \[T1\]/) // fits: one row
   // the choice ignores current tools: a long tool name does not flip it
   const tooly = stagesMockup([{ kind: 'toolCall', at: 99_000, agentId: 'v', tool: 'mcp__srv__a_very_long_tool_name' }])
   assert.match(text(layout(tooly, opts({ width: 140 })))[2]!, /─┬─ Explore/)
@@ -535,7 +535,7 @@ test('fix 4: a route branch drops `<type> — ` from its node label, keeping a [
     spawn('k', 4, { parentId: 'a', description: 'Explore — nested' }), // not a branch: kept
   ])
   const t = text(layout(s, opts({ width: 160 })))
-  assert.match(t[2]!, /─►\[● \[T1\] list files in src 1m39s\]───►\[● Explore — nested 1m39s\]$/)
+  assert.match(t[2]!, /─▶\[● \[T1\] list files in src 1m39s\]───▶\[● Explore — nested 1m39s\]$/)
   assert.ok(t.some(l => l.includes('[● Explore — scan 1m39s]')))
   assert.ok(t.some(l => l.includes('[● Explore —  1m39s]'))) // the description as given
   assert.ok(text(layout(s, opts({ view: 'pool' }))).includes('  ● [T1] Explore — list files in src 1m39s'))
@@ -567,14 +567,14 @@ test('stages: below 60 columns the stages are an indented tree, branch labels be
   assert.deepEqual(t.slice(1, 13), [
     '',
     '[● request · Bash]',
-    '  └► [✓ classify: complex 8s]',
-    '    └► [⑂ route]',
-    '      ├► Explore ► [✓ [T1] list files 13s]',
-    '      ├► Explore ► [✓ [T2] count tests 10s]',
-    '      └► workflow ► [◆ review-wf]',
-    '        ├► [✓ review:bugs 41s]',
-    '          ┄► [● verify:bugs · Grep 12s]',
-    '        └► [✗ review:perf 42s]',
+    '  └▶ [✓ classify: complex 8s]',
+    '    └▶ [⑂ route]',
+    '      ├▶ Explore ▶ [✓ [T1] list files 13s]',
+    '      ├▶ Explore ▶ [✓ [T2] count tests 10s]',
+    '      └▶ workflow ▶ [◆ review-wf]',
+    '        ├▶ [✓ review:bugs 41s]',
+    '          ┄▶ [● verify:bugs · Grep 12s]',
+    '        └▶ [✗ review:perf 42s]',
     'Progress  tasks 3/5 done · 1 running · 3 done · 1 failed',
     'Tasks',
   ])
@@ -590,7 +590,7 @@ test('stages: runningOnly keeps the latest drawn turn\'s stage nodes, drops turn
   ])
   const t = text(layout(s, opts({ runningOnly: true })))
   // main is waiting, so hidden: its request node still draws, not selectable; the plan phase runs to b, the first dispatch
-  assert.deepEqual(t.slice(2), ['[✓ request]─►[✓ plan 1s]─►[⑂ route]─── Explore ──►[● b 1m34s]', 'Progress  1 running · 2 done · 0 failed'])
+  assert.deepEqual(t.slice(2), ['[✓ request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● b 1m34s]', 'Progress  1 running · 2 done · 0 failed'])
   assert.deepEqual(selectableIds(s, { view: 'agent', runningOnly: true, rules: [] }), ['b'])
   // nothing running: no turn is drawn, main hidden: nothing but Progress
   const idle = snap([spawn('a', 1), { kind: 'runEnd', at: 2, agentId: 'a', reason: 'answer' }])
@@ -600,9 +600,9 @@ test('stages: runningOnly keeps the latest drawn turn\'s stage nodes, drops turn
 test('stages: dispatches before any recorded turn form a turn of their own, with no plan time', () => {
   const s = snap([spawn('a', 1_000), { kind: 'runEnd', at: 2_000, agentId: 'a', reason: 'answer' }, { kind: 'mainTurn', at: 5_000, phase: 'start' }, spawn('b', 6_000)])
   const t = text(layout(s, opts()))
-  assert.deepEqual(t.slice(2, 5), ['[● request]─►[✓ plan 1s]─►[⑂ route]─── Explore ──►[● b 1m34s]', 'Progress  1 running · 1 done · 0 failed',
+  assert.deepEqual(t.slice(2, 5), ['[● request]─▶[✓ plan 1s]─▶[⑂ route]─── Explore ──▶[● b 1m34s]', 'Progress  1 running · 1 done · 0 failed',
     '◉ request #1 · 1 agent ✓ ≤4s']) // its end is not known: bounded by the next turn's start
-  assert.match(text(layout(snap([spawn('a', 1_000)]), opts()))[2]!, /^\[◉ request\]─►\[✓ plan\]─►\[⑂ route\]/)
+  assert.match(text(layout(snap([spawn('a', 1_000)]), opts()))[2]!, /^\[◉ request\]─▶\[✓ plan\]─▶\[⑂ route\]/)
 })
 
 test('stages: main alone draws the request node alone; the header keeps only the agent count', () => {
@@ -615,12 +615,12 @@ test('stages: branch labels are capped at 16 cells and padded so a group\'s arro
   const s = snap([spawn('a', 1, { type: 'a-very-long-agent-type-name-here' }), spawn('b', 2)])
   const t = text(layout(s, opts()))
   assert.deepEqual(t.slice(2, 4), [
-    '[◉ request]─►[✓ plan]─►[⑂ route]─┬─ a-very-long-age… ──►[● a 1m39s]', // 16 cells: 15 and the …
-    '                                 └─ Explore ───────────►[● b 1m39s]',
+    '[◉ request]─▶[✓ plan]─▶[⑂ route]─┬─ a-very-long-age… ──▶[● a 1m39s]', // 16 cells: 15 and the …
+    '                                 └─ Explore ───────────▶[● b 1m39s]',
   ])
-  assert.equal(t[2]!.indexOf('►[● a'), t[3]!.indexOf('►[● b'))
+  assert.equal(t[2]!.indexOf('▶[● a'), t[3]!.indexOf('▶[● b'))
   const narrow = text(layout(s, opts({ width: 59 })))
-  assert.ok(narrow.includes('      ├► a-very-long-age… ► [● a 1m39s]'))
+  assert.ok(narrow.includes('      ├▶ a-very-long-age… ▶ [● a 1m39s]'))
 })
 
 test('detailLines: main when nothing is selected, one field per line, — for missing values', () => {
@@ -682,4 +682,20 @@ test('hideMainTool: the request node leaves out the current tool of main, so the
   const hidden = text(layout(s, opts({ hideMainTool: true })))
   assert.ok(hidden.some(l => l.includes('[● request]')))
   assert.ok(!hidden.some(l => l.includes('request · Bash')))
+})
+
+test('safeRows swaps only the symbols Windows fonts lack, keeping widths and styles', () => {
+  const rows: Row[] = [[{ text: '[✓ a]─▶[✗ b]', fg: 'green' }, { text: ' ◌ ⑂ ◆ ◉ ┄ ● ■ … 漢', hit: 'agent:x' }]]
+  const out = safeRows(rows)
+  assert.equal(rowText(out[0]!), '[√ a]─►[× b] ○ » ♦ • · ● ■ … 漢')
+  assert.equal(cellWidth(rowText(out[0]!)), cellWidth(rowText(rows[0]!)))
+  assert.equal(out[0]![0]!.fg, 'green'); assert.equal(out[0]![1]!.hit, 'agent:x')
+  assert.equal(rowText(rows[0]!), '[✓ a]─▶[✗ b] ◌ ⑂ ◆ ◉ ┄ ● ■ … 漢') // the input is left alone
+})
+
+test('wantSafe: SWIMTRACE_SYMBOLS decides, otherwise Windows', () => {
+  assert.equal(wantSafe(undefined, 'Windows_NT'), true)
+  assert.equal(wantSafe(undefined, undefined), false)
+  assert.equal(wantSafe('rich', 'Windows_NT'), false)
+  assert.equal(wantSafe('safe', undefined), true)
 })

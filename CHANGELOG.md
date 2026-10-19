@@ -5,6 +5,14 @@ version is the one in `package.json` and `mod/.claude-plugin/plugin.json`.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-19
+
+### Fixed
+
+- On Windows the band and the viewer draw symbols that Windows terminal fonts (Consolas, Lucida Console, Courier New)
+  have, since those fonts drew `▶ ✓ ✗ ◌ ⑂ ◆ ◉ ┄` as boxes: `► √ × ○ » ♦ • ·`. `SWIMTRACE_SYMBOLS=safe` or `rich`
+  overrides the choice on any system. Elsewhere the flow keeps its symbols, and the arrows are `▶` again.
+
 ## [0.1.2] - 2026-10-16
 
 ### Fixed
