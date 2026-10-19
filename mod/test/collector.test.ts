@@ -1,4 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
+import { VERSION } from '../core/model.ts'
 
 const snapRef = { plugin: 'swimtrace', key: 'snap' } as const
 
@@ -63,6 +64,7 @@ test('snapshot is written under ~/.claude/swimtrace/sessions on the timer, with 
   const path = '/home/t/.claude/swimtrace/sessions/sess-1.json'
   expect(writes[path]).toBeDefined()
   const first = JSON.parse(writes[path]!).writtenAt
+  expect(JSON.parse(writes[path]!).by).toBe(VERSION) // the viewer compares it with its own
   await clock.advance(2_000)
   expect(JSON.parse(writes[path]!).writtenAt).toBe(first) // idle: no rewrite before the heartbeat
   await clock.advance(3_500)

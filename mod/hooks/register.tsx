@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeKey, Timer } from 'claude-code'
-import { DEFAULT_STALE_WORKFLOW_MS, emptySnapshot, type Snapshot } from '../core/model.ts'
+import { DEFAULT_STALE_WORKFLOW_MS, VERSION, emptySnapshot, type Snapshot } from '../core/model.ts'
 import { reduceAll, type Event } from '../core/reducer.ts'
 import { compileRules, DEFAULT_CONFIG, parseConfig } from '../core/pools.ts'
 import { cellWidth, layout, safeRows, selectableIds, wantSafe, type Fg, type Row } from '../core/layout.ts'
@@ -111,7 +111,7 @@ async function writeSnapshot($: EngineInterface, force: boolean): Promise<void> 
   const s = await read($, snap)
   if (s === undefined) return
   lastWrite = now
-  await $.fs.write(`${await swimtraceDir($)}/sessions/${s.session.id}.json`, JSON.stringify({ ...s, writtenAt: now }))
+  await $.fs.write(`${await swimtraceDir($)}/sessions/${s.session.id}.json`, JSON.stringify({ ...s, writtenAt: now, by: VERSION }))
 }
 
 export const register: Register = on => {

@@ -30,8 +30,12 @@ export interface Turn { startedAt: number; endedAt?: number }
 
 export interface Folded { completed: number; failed: number; interrupted: number; killed: number; unknown: number }
 
+/** This release, as in package.json and mod/.claude-plugin/plugin.json (a test keeps the three equal). */
+export const VERSION = '0.1.4'
+
 export interface Snapshot {
   v: 1
+  by?: string // VERSION of the plugin that wrote the file; older files have none
   simulated: boolean
   session: Session
   writtenAt: number

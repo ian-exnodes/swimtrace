@@ -32,6 +32,7 @@ export interface SwimtraceFolded { completed: number; failed: number; interrupte
 
 export interface SwimtraceSnapshot {
   v: 1
+  by?: string
   simulated: boolean
   session: SwimtraceSession
   writtenAt: number
