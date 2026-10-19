@@ -21,7 +21,7 @@ type LaneOpts = Pick<LayoutOpts, 'view' | 'runningOnly' | 'rules'> & { now?: num
 
 export const COMPACT_BELOW = 60
 export const GLYPH: Record<Status, string> = {
-  running: '●', waiting: '◌', completed: '✓', failed: '✗', interrupted: '■', killed: '■', unknown: '?',
+  running: '●', waiting: '○', completed: '√', failed: '×', interrupted: '■', killed: '■', unknown: '?',
 }
 const COLOR: Record<Status, Fg> = {
   running: 'cyan', waiting: 'yellow', completed: 'green', failed: 'red', interrupted: 'magenta', killed: 'magenta', unknown: 'gray',
@@ -147,7 +147,7 @@ const BRANCH_CELLS = 16
 const EARLIER_LINES = 3
 
 /**
- * Each dispatch (a child of main, ◆ nodes included) belongs to the turn with the latest start no later than its own.
+ * Each dispatch (a child of main, ♦ nodes included) belongs to the turn with the latest start no later than its own.
  * Turns with a dispatch are drawn, and main's newest turn while main runs in it (still planning, maybe). Classify is the
  * planning phase, turn start to first dispatch, plus a `[class:<word>]` tag when a dispatch carries one: timing and
  * the tag only, nothing inferred. Computed from every dispatch, so runningOnly does not change it.
@@ -215,7 +215,7 @@ const RANGES_ZERO: [number, number][] = [[0x300, 0x36f], [0x200b, 0x200f], [0xfe
 const RANGES_WIDE: [number, number][] = [
   [0x1100, 0x115f], [0x2e80, 0xa4cf], [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe30, 0xfe4f],
   [0xff00, 0xff60], [0xffe0, 0xffe6], [0x1f300, 0x1faff], [0x20000, 0x3fffd],
-  // Emoji-presentation symbols below U+1F300 (✅ ⚡ ❌ ⭐ …). Code points only, not blocks: ✓ ✗ ● ◆ and the box drawing stay 1.
+  // Emoji-presentation symbols below U+1F300 (✅ ⚡ ❌ ⭐ …). Code points only, not blocks: √ × ● ♦ and the box drawing stay 1.
   [0x231a, 0x231b], [0x23e9, 0x23ec], [0x23f0, 0x23f0], [0x23f3, 0x23f3], [0x25fd, 0x25fe], [0x2614, 0x2615],
   [0x2648, 0x2653], [0x267f, 0x267f], [0x2693, 0x2693], [0x26a1, 0x26a1], [0x26aa, 0x26ab], [0x26bd, 0x26be],
   [0x26c4, 0x26c5], [0x26ce, 0x26ce], [0x26d4, 0x26d4], [0x26ea, 0x26ea], [0x26f2, 0x26f3], [0x26f5, 0x26f5],
@@ -278,7 +278,7 @@ const toolName = (t: string) => t.replace(/^mcp__.*__(?=.)/, '')
 
 /** `bare`: without the current tool (to measure a flow that holds still while tools change). */
 function nodeSeg(n: FNode, o: LayoutOpts, workflows: Record<string, string>, bare = false): Seg {
-  if (n.a === undefined) return { text: `[◆ ${cap(workflows[n.runId!] ?? n.runId!, LABEL_CELLS)}]`, bold: true }
+  if (n.a === undefined) return { text: `[♦ ${cap(workflows[n.runId!] ?? n.runId!, LABEL_CELLS)}]`, bold: true }
   const a = n.a
   const tool = !bare && a.status === 'running' && a.currentTool ? ` · ${cap(toolName(a.currentTool), TOOL_CELLS)}` : ''
   const time = a.id === 'main' ? '' : ` ${dur(a, o.now)}`
@@ -334,7 +334,7 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
   })
   if (branches.length > 0) {
     if (stacked) {
-      // A connector from under the route's ⑂ back to column 2, so the branches below visibly hang off the route.
+      // A connector from under the route's » back to column 2, so the branches below visibly hang off the route.
       const fork = col - cellWidth(lead.at(-1)!.text) + 1
       put(1, 2, { text: `┌${'─'.repeat(Math.max(0, fork - 3))}┘`, ...EDGE })
       fan(branches, 2, 2, false)
@@ -354,7 +354,7 @@ function flowRows(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
 
 /**
  * The flow below COMPACT_BELOW columns: one node per line, indented, each stage the only child of the one before;
- * a branch shows its label before the agent; a chained agent is its predecessor's `┄►` child.
+ * a branch shows its label before the agent; a chained agent is its predecessor's `·►` child.
  */
 function flowTree(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Record<string, string>): Row[] {
   const out: Row[] = lead.map((seg, i) => [{ text: i === 0 ? '' : `${'  '.repeat(i)}└► `, ...EDGE }, seg])
@@ -362,7 +362,7 @@ function flowTree(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
     const branch = n.edge === undefined ? '' : `${cap(n.edge, BRANCH_CELLS)} ► `
     out.push([{ text: '  '.repeat(depth) + conn + branch, ...EDGE }, nodeSeg(n, o, workflows)])
     const subs = [...(n.chain ? [{ k: n.chain, dashed: true }] : []), ...n.kids.map(k => ({ k, dashed: false }))]
-    subs.forEach(({ k, dashed }, i) => walk(k, depth + 1, dashed ? '┄► ' : i === subs.length - 1 ? '└► ' : '├► '))
+    subs.forEach(({ k, dashed }, i) => walk(k, depth + 1, dashed ? '·► ' : i === subs.length - 1 ? '└► ' : '├► '))
   }
   branches.forEach((k, i) => walk(k, lead.length, i === branches.length - 1 ? '└► ' : '├► '))
   return out
@@ -370,7 +370,7 @@ function flowTree(lead: Seg[], branches: FNode[], o: LayoutOpts, workflows: Reco
 
 /**
  * A turn's stage nodes. Request: on the latest turn, main: running with its tool (only on main's newest turn: main's
- * live state is never drawn on an older turn), ? when stale, ✓ once the turn is over, ◉ otherwise; ✓ on any older turn.
+ * live state is never drawn on an older turn), ? when stale, √ once the turn is over, • otherwise; √ on any older turn.
  * Then `[● plan <so far>]` while the turn has dispatched nothing, else classify and route. None when main is hidden
  * and no turn is drawn. `bare`: without the current tool.
  */
@@ -382,7 +382,7 @@ function stageSegs(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: Lay
   const live = current && main === 'running'
   const stale = current && main === 'unknown'
   const done = !live && !stale && (!latest || main === 'completed' || (t === undefined ? st.over : t.end !== undefined))
-  const glyph = live ? GLYPH.running : stale ? GLYPH.unknown : done ? GLYPH.completed : '◉'
+  const glyph = live ? GLYPH.running : stale ? GLYPH.unknown : done ? GLYPH.completed : '•'
   const tool = live && !bare && !o.hideMainTool && m!.currentTool ? ` · ${cap(toolName(m!.currentTool), TOOL_CELLS)}` : ''
   const req: Seg = {
     text: `[${glyph} request${tool}]`, fg: done ? COLOR.completed : live ? COLOR.running : stale ? COLOR.unknown : main && COLOR[main],
@@ -391,7 +391,7 @@ function stageSegs(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: Lay
   }
   if (t === undefined) return [req]
   if (t.plan === undefined) return [req, { text: `[${GLYPH.running} plan ${fmtDuration(o.now - t.startedAt)}]`, fg: COLOR.running }]
-  return [req, { text: `[${GLYPH.completed} ${cap(t.plan, LABEL_CELLS)}]`, fg: COLOR.completed }, { text: '[⑂ route]', bold: true }]
+  return [req, { text: `[${GLYPH.completed} ${cap(t.plan, LABEL_CELLS)}]`, fg: COLOR.completed }, { text: '[» route]', bold: true }]
 }
 
 /**
@@ -406,15 +406,15 @@ function pipeline(t: DrawnTurn | undefined, latest: boolean, st: Stages, o: Layo
   return flowRows(lead, branches, o, workflows, bare.some(r => cellWidth(rowText(r)) > o.width))
 }
 
-/** `◉ request #<n> · <k> agents <summary> <duration>`: an earlier turn, its agents counted, not drawn; `≤` when its end was missed. */
+/** `• request #<n> · <k> agents <summary> <duration>`: an earlier turn, its agents counted, not drawn; `≤` when its end was missed. */
 function turnLine(t: DrawnTurn, now: number): Row {
   const ags = t.nodes.flatMap(agentsOf)
   const n = (...st: Status[]) => ags.filter(a => st.includes(a.status)).length
-  const parts: [number, string][] = [[n('failed'), '✗ # failed'], [n('running'), '● # running'], [n('waiting'), '◌ # waiting'],
+  const parts: [number, string][] = [[n('failed'), '× # failed'], [n('running'), '● # running'], [n('waiting'), '○ # waiting'],
     [n('interrupted', 'killed'), '■ # stopped'], [n('unknown'), '? # unknown']]
-  const sum = n('completed') === ags.length ? '✓' : parts.filter(([c]) => c > 0).map(([c, w]) => w.replace('#', String(c))).join(' ')
+  const sum = n('completed') === ags.length ? '√' : parts.filter(([c]) => c > 0).map(([c, w]) => w.replace('#', String(c))).join(' ')
   const time = `${t.bounded ? '≤' : ''}${fmtDuration((t.end ?? now) - t.startedAt)}`
-  return [{ text: `◉ request #${t.n} · ${ags.length} agent${ags.length === 1 ? '' : 's'} ${sum} ${time}`, ...EDGE }]
+  return [{ text: `• request #${t.n} · ${ags.length} agent${ags.length === 1 ? '' : 's'} ${sum} ${time}`, ...EDGE }]
 }
 
 /** clip, with a trailing … when the row was cut. */
@@ -521,7 +521,7 @@ export function layout(snapshot: Snapshot, o: LayoutOpts): Row[] {
   if (s.tasks.length > 0) {
     body.push([{ text: 'Tasks', bold: true }])
     for (const t of s.tasks) {
-      const g = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '●' : '◌'
+      const g = t.status === 'completed' ? '√' : t.status === 'in_progress' ? '●' : '○'
       const blocked = t.blockedBy.length > 0 ? ` (blocked by ${t.blockedBy.join(', ')})` : ''
       body.push([{ text: `  #${t.id} ${g} ${t.subject}${blocked}` }])
     }

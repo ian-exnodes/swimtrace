@@ -35,7 +35,7 @@ test('takeMouse: arrow keys and other escapes are not mouse input', () => {
 
 test('hitAt: finds the target under a cell, counting wide characters as two cells', () => {
   const rows: Row[] = [
-    [{ text: '│ ' }, { text: '漢字 ' }, { text: '[✓ a1 3s]', hit: 'agent:a1' }, { text: ' │' }],
+    [{ text: '│ ' }, { text: '漢字 ' }, { text: '[√ a1 3s]', hit: 'agent:a1' }, { text: ' │' }],
     [{ text: 'proj  1234abcd  live', hit: 'session:/x/s.json' }],
   ]
   assert.equal(hitAt(rows, 0, 0), undefined) // the border
