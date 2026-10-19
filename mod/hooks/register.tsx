@@ -3,7 +3,7 @@ import type { EngineInterface, Register, ThemeKey, Timer } from 'claude-code'
 import { DEFAULT_STALE_WORKFLOW_MS, emptySnapshot, type Snapshot } from '../core/model.ts'
 import { reduceAll, type Event } from '../core/reducer.ts'
 import { compileRules, DEFAULT_CONFIG, parseConfig } from '../core/pools.ts'
-import { cellWidth, layout, selectableIds, type Fg, type Row } from '../core/layout.ts'
+import { cellWidth, layout, safeRows, selectableIds, wantSafe, type Fg, type Row } from '../core/layout.ts'
 import type { SwimtraceUi } from '../types'
 import { listEvents, spawnEvent, toolCallEvent, toolResultEvents, turnEndEvent } from './events.ts'
 
@@ -248,6 +248,7 @@ export const register: Register = on => {
         rows = layout(own, opts(Math.max(4, room - buttonRows - (note ? 1 : 0))))
       }
       if (note) rows = [note, ...rows]
+      if (wantSafe(await $.env.get('SWIMTRACE_SYMBOLS'), await $.env.get('OS'))) rows = safeRows(rows)
 
       // Handlers read the state as it stands at the press, never what this drawing captured.
       const move = async (d: 1 | -1) => {

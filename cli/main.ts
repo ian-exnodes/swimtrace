@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { emitKeypressEvents } from 'node:readline'
 import { PassThrough } from 'node:stream'
 import { compileRules, parseConfig, type CompiledRule } from '../mod/core/pools.ts'
-import { cellWidth, clip, detailLines, fmtDuration, layout, rowText, selectableIds, type LayoutOpts, type Row, type View } from '../mod/core/layout.ts'
+import { cellWidth, clip, detailLines, fmtDuration, layout, rowText, safeRows, selectableIds, wantSafe, type LayoutOpts, type Row, type View } from '../mod/core/layout.ts'
 import { listSessions, pickSession, pruneOld, swimtraceDir, type SessionEntry } from './snapshots.ts'
 import type { Snapshot } from '../mod/core/model.ts'
 import { panes } from './panes.ts'
@@ -135,6 +135,7 @@ export function safeToClean(root: string): { ok: true; missing: boolean } | { ok
 export async function viewer(dir: string, startInList: boolean, mouse = true): Promise<number> {
   const out = process.stdout
   const cache = new Map()
+  const safe = wantSafe(process.env.SWIMTRACE_SYMBOLS, process.env.OS)
   const cfgText = (() => { try { return readFileSync(join(swimtraceDir(), 'config.json'), 'utf8') } catch { return undefined } })()
   const parsed = parseConfig(cfgText)
   const { rules, warnings } = compileRules(parsed.config.rules)
@@ -158,7 +159,7 @@ export async function viewer(dir: string, startInList: boolean, mouse = true): P
     const width = out.columns || 80
     const height = out.rows || 24
     const st: ViewState = { entries, current, listMode, listSel, view, runningOnly, expanded, selectedId, rules, notes, now: Date.now() }
-    frame = screen(st, width, height)
+    frame = safe ? safeRows(screen(st, width, height)) : screen(st, width, height)
     const next = frame.map(toAnsi)
     out.write(diffFrame(prev, next))
     prev = next

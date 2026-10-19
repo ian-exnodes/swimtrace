@@ -37,7 +37,7 @@ test('box without the right edge, custom corners, a body taller than the box', (
 })
 
 const content = (seen: Record<string, number[]> = {}, sessionCount = 2): PaneContent => ({
-  flow: (w, h) => { seen.flow = [w, h]; return { title: t('SWIMTRACE proj'), body: [t('[√ request]─►[√ plan 8s]')] } },
+  flow: (w, h) => { seen.flow = [w, h]; return { title: t('SWIMTRACE proj'), body: [t('[✓ request]─▶[✓ plan 8s]')] } },
   details: w => { seen.details = [w]; return [t('main'), t('type    main')] },
   sessions: (w, h) => { seen.sessions = [w, h]; return [t('proj  e57186f5  live')] },
   sessionCount,

@@ -52,11 +52,11 @@ On a terminal of at least 100×20 the viewer splits into panes:
 ```
 ┌─ SWIMTRACE  project-alpha  session sim-fano   3 agents ──────────┬─ Details ─────────────────────┐
 │                                                                  │ map auth module               │
-│ [● request]─►[√ plan 0s]─►[» route]                              │ status  ● running 5s          │
+│ [● request]─▶[✓ plan 0s]─▶[⑂ route]                              │ status  ● running 5s          │
 │   ┌────────────────────────┘                                     │ type    Explore               │
-│   ├─ Explore ──►[● map auth module · Grep 5s]                    │ pool    Explore (type)        │
-│   ├─ Explore ──►[√ map billing module 5s]                        │ parent  main                  │
-│   └─ Explore ──►[● map api routes · Glob 5s]                     │ model   —                     │
+│   ├─ Explore ──▶[● map auth module · Grep 5s]                    │ pool    Explore (type)        │
+│   ├─ Explore ──▶[✓ map billing module 5s]                        │ parent  main                  │
+│   └─ Explore ──▶[● map api routes · Glob 5s]                     │ model   —                     │
 │ Progress  2 running · 1 done · 0 failed                          │ tool    Grep                  │
 │                                                                  │ tools   Grep                  │
 │                                                                  │ start   00:00:00  end —       │
@@ -90,6 +90,10 @@ On a terminal of at least 100×20 the viewer splits into panes:
 | Tab | next session |
 | `l` | full-screen session list (↑/↓ and Enter, or click, to open one) |
 | `q`, Ctrl+C | quit |
+
+On Windows the viewer and the band draw `► √ × ○ » ♦ •` in place of `▶ ✓ ✗ ◌ ⑂ ◆ ◉`, which Windows terminal fonts
+lack; set `SWIMTRACE_SYMBOLS=rich` to keep the originals (say, with Cascadia Code), or `SWIMTRACE_SYMBOLS=safe` to
+use the stand-ins anywhere.
 
 While the viewer runs, clicks belong to it: select text with Shift-drag (Option-drag in iTerm2), or start it with
 `swimtrace --no-mouse`. Below 100×20 the viewer is a single column (the flow only); there Enter shows or hides the
@@ -134,7 +138,7 @@ Create 4 tasks with TaskCreate: map folders, find tests, find config files, writ
 Use a workflow: review this repo in two dimensions, bugs and readability. Label the agents review:bugs, review:readability, then verify:bugs, verify:readability to double-check each review's findings.
 ```
 
-A `♦` workflow node fans out its agents, and dashed arrows run from each `review:<key>` to its `verify:<key>`.
+A `◆` workflow node fans out its agents, and dashed arrows run from each `review:<key>` to its `verify:<key>`.
 Claude Code runs a workflow only when you ask for one in your own words, which is why the prompt says
 "use a workflow".
 
@@ -193,7 +197,7 @@ Send prompt 1, wait for it to finish, then send:
 Now use 2 Explore agents: one finds TODO comments, one finds the longest function.
 ```
 
-The first turn shrinks to one dim `• request #1 · 3 agents` line; only the new turn's agents can be clicked.
+The first turn shrinks to one dim `◉ request #1 · 3 agents` line; only the new turn's agents can be clicked.
 
 **Without tokens:** `swimtrace sim failure` shows a failed node and its `reason`, `swimtrace sim multi-session` fills
 Sessions, `swimtrace sim crash` checks that the screen and mouse mode are restored, and
@@ -210,18 +214,18 @@ grows back. From about 140 columns the flow fits on one row. With `--no-mouse`, 
   ```
   SWIMTRACE  proj  session e57186f5   5 agents
 
-  [√ request]─►[√ classify: complex 8s]─►[» route]─┬─ Explore ───►[√ [T1] list files 13s]
-                                                   ├─ Explore ───►[√ [T2] count tests 10s]
-                                                   └─ workflow ──►[♦ review-wf]─┬─►[√ review:bugs 41s]─ ─►[● verify:bugs · Grep 12s]
-                                                                                └─►[× review:perf 42s]
+  [✓ request]─▶[✓ classify: complex 8s]─▶[⑂ route]─┬─ Explore ───▶[✓ [T1] list files 13s]
+                                                   ├─ Explore ───▶[✓ [T2] count tests 10s]
+                                                   └─ workflow ──▶[◆ review-wf]─┬─▶[✓ review:bugs 41s]─ ─▶[● verify:bugs · Grep 12s]
+                                                                                └─▶[✗ review:perf 42s]
   Progress  tasks 3/5 done · 1 running · 3 done · 1 failed
   ```
 
   - **request** is the main conversation's turn: `[● request · Bash]` while it runs (with its current tool),
-    `[√ request]` once the turn is over. It stands for main: select it to see main's details. While main is still
-    planning (no agent dispatched yet in this turn) the flow shows `[● request · Read]─►[● plan 3s]`, with no route.
+    `[✓ request]` once the turn is over. It stands for main: select it to see main's details. While main is still
+    planning (no agent dispatched yet in this turn) the flow shows `[● request · Read]─▶[● plan 3s]`, with no route.
     A turn that ends without dispatching anything is not drawn.
-  - **plan / classify** is the planning phase, from the start of the turn to its first dispatch: `[√ plan 8s]`. If an
+  - **plan / classify** is the planning phase, from the start of the turn to its first dispatch: `[✓ plan 8s]`. If an
     Agent call's description carries a `[class:<word>]` tag (say `[T1] list files [class:complex]`), the node reads
     `classify: <word>` instead. The tag is the only classification SwimTrace shows, and it is never part of a label.
     Before any turn was seen (the mod was installed mid-session) the node has no time.
@@ -232,15 +236,15 @@ grows back. From about 140 columns the flow fits on one row. With `--no-mouse`, 
   - **Progress**, right under the flow, counts every agent of the session: tasks done (when Task tools are used),
     then running, done, failed (and waiting, stopped, unknown when any). The header keeps only the number of agents.
   - Earlier turns that dispatched agents are one dim line each under Progress, newest first:
-    `• request #1 · 5 agents × 1 failed 14s` (at most three, then `… 4 earlier turns`). Their agents are not drawn or
+    `◉ request #1 · 5 agents ✗ 1 failed 14s` (at most three, then `… 4 earlier turns`). Their agents are not drawn or
     selectable. `≤14s` means the turn's end was missed and the next turn's start bounds it. An earlier turn with an
     agent still running is drawn in full instead, so that agent stays in sight.
 
-  An agent node is `[status label · current tool duration]`. A solid arrow means who started whom. `♦` is a workflow
-  run: its agents hang off it. A dashed arrow (`─ ─►`) is step order that SwimTrace infers from workflow labels shaped
+  An agent node is `[status label · current tool duration]`. A solid arrow means who started whom. `◆` is a workflow
+  run: its agents hang off it. A dashed arrow (`─ ─▶`) is step order that SwimTrace infers from workflow labels shaped
   `<step>:<key>` (`verify:bugs` comes after `review:bugs`). It is a guess from the labels, not something Claude Code
   reports, and the details line says so. What one agent handed another (data flow) cannot be seen. Below 60 columns
-  the flow becomes an indented tree (request, then plan, then route, then `Explore ► [agent]`). `g` switches to the
+  the flow becomes an indented tree (request, then plan, then route, then `Explore ▶ [agent]`). `g` switches to the
   pools view (lanes, see below) and back.
 - In Claude Code the flow appears above the prompt once a subagent runs; `/swimtrace` hides or shows it, and
   ctrl+x ctrl+a collapses it. Keys (button hotkeys, after a click on the band or ctrl+x tab): `g` flow/pools,

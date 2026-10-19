@@ -9,9 +9,9 @@ version is the one in `package.json` and `mod/.claude-plugin/plugin.json`.
 
 ### Fixed
 
-- Every symbol in the flow is now one that Windows terminal fonts (Consolas, Lucida Console, Courier New) have:
-  done `√` (was ✓), failed `×` (✗), waiting `○` (◌), route `»` (⑂), workflow `♦` (◆), earlier turn `•` (◉), and
-  `·►` (┄►) for step order in the narrow tree. They were drawn as boxes there.
+- On Windows the band and the viewer draw symbols that Windows terminal fonts (Consolas, Lucida Console, Courier New)
+  have, since those fonts drew `▶ ✓ ✗ ◌ ⑂ ◆ ◉ ┄` as boxes: `► √ × ○ » ♦ • ·`. `SWIMTRACE_SYMBOLS=safe` or `rich`
+  overrides the choice on any system. Elsewhere the flow keeps its symbols, and the arrows are `▶` again.
 
 ## [0.1.2] - 2026-10-16
 
