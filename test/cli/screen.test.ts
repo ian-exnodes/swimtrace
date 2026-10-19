@@ -59,7 +59,7 @@ test('panes: a selected agent filtered out by running only sends Details back to
 })
 
 test('panes: a config warning replaces the key bar', () => {
-  const rows = screen(state({ notes: ['rule 1: bad regex'] }), 120, 30)
+  const rows = screen(state({ notes: ['config: rule 1: bad regex'] }), 120, 30)
   exact(rows, 120, 30)
   assert.match(rowText(rows[29]!), /^config: rule 1: bad regex/)
   assert.equal(rows[29]![0]!.fg, 'yellow')

@@ -10,6 +10,7 @@ import { listSessions, pickSession, pruneOld, swimtraceDir, type SessionEntry } 
 import type { Snapshot } from '../mod/core/model.ts'
 import { panes } from './panes.ts'
 import { MOUSE_OFF, MOUSE_ON, hitAt, takeMouse } from './mouse.ts'
+import { newerPlugin, runUpdate, updateNote } from './update.ts'
 import { ALT_OFF, ALT_ON, HIDE_CURSOR, SHOW_CURSOR, diffFrame, toAnsi } from './term.ts'
 
 const HELP = `swimtrace — live flow of Claude Code subagents
@@ -19,6 +20,7 @@ const HELP = `swimtrace — live flow of Claude Code subagents
   --no-mouse           no clicks (keeps the terminal's own text selection)
   swimtrace sim <fanout|failure|workflow|orchestrated|multi-session|crash> [--speed N]
   swimtrace clean      delete ~/.claude/swimtrace (snapshots, sim data, config)
+  swimtrace update     git pull and rebuild this viewer's clone
 
 keys: ↑/↓ select · Enter details (single column) · g flow/pools · r running only · l session list · Tab next session · q quit
 mouse: click an agent to select it, a session to open it; Shift-drag (Option-drag in iTerm2) selects text`
@@ -84,7 +86,7 @@ function flowTitle(snap: Snapshot, o: Omit<LayoutOpts, 'width' | 'height' | 'exp
 /** One frame: the session list, the single column (as the band draws it), or the panes when the terminal has room. */
 export function screen(st: ViewState, width: number, height: number): Row[] {
   const cur = st.entries.find(e => e.path === st.current)
-  const warn = st.notes.length ? clip([{ text: `config: ${st.notes[0]}`, fg: 'yellow' }], width) : undefined
+  const warn = st.notes.length ? clip([{ text: st.notes[0]!, fg: 'yellow' }], width) : undefined
   const o = { now: st.now, view: st.view, runningOnly: st.runningOnly, selectedId: st.selectedId, rules: st.rules }
   if (!st.listMode && cur !== undefined && usePanes(width, height)) {
     return panes({
@@ -149,7 +151,7 @@ export async function viewer(dir: string, startInList: boolean, mouse = true): P
   let selectedId: string | undefined
   let prev: string[] = []
   let frame: Row[] = [] // the last frame drawn, for clicks
-  const notes = [...parsed.warnings, ...warnings]
+  const notes = [...parsed.warnings, ...warnings].map(w => `config: ${w}`)
 
   const refresh = () => {
     entries = listSessions(dir, Date.now(), cache)
@@ -158,7 +160,8 @@ export async function viewer(dir: string, startInList: boolean, mouse = true): P
   const draw = () => {
     const width = out.columns || 80
     const height = out.rows || 24
-    const st: ViewState = { entries, current, listMode, listSel, view, runningOnly, expanded, selectedId, rules, notes, now: Date.now() }
+    const plugin = newerPlugin(entries)
+    const st: ViewState = { entries, current, listMode, listSel, view, runningOnly, expanded, selectedId, rules, notes: plugin ? [updateNote(plugin), ...notes] : notes, now: Date.now() }
     frame = safe ? safeRows(screen(st, width, height)) : screen(st, width, height)
     const next = frame.map(toAnsi)
     out.write(diffFrame(prev, next))
@@ -253,6 +256,7 @@ export async function main(argv: string[]): Promise<number> {
     if (safe.missing) { console.log(`nothing to delete: ${root} does not exist`); return 0 }
     rmSync(root, { recursive: true, force: true }); console.log(`removed ${root}`); return 0
   }
+  if (cmd === 'update') return runUpdate(fileURLToPath(new URL('.', import.meta.url)))
   if (cmd === 'sim') {
     const speedAt = argv.indexOf('--speed')
     const speed = speedAt > 0 ? Number(argv[speedAt + 1]) : 1

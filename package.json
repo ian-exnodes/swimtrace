@@ -1,6 +1,6 @@
 {
   "name": "swimtrace",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Live flow monitor for Claude Code multi-agent runs",
   "type": "module",
   "bin": { "swimtrace": "dist/cli/main.js" },
